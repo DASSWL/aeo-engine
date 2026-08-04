@@ -11,6 +11,22 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 
+# ---------------------------------------------------------------------------
+# 强制走订阅登录，剥掉按 token 计费的凭据。
+#
+# 为什么必须有这一段：OpenClaw 的 openclaw.json 里配了 env.ANTHROPIC_API_KEY，
+# 它会被注入到 OpenClaw 派生的每一个进程。claude 一旦看见这个 key，就**优先用它**
+# 而不是 claude.ai 订阅登录（claude 自己会警告 "another auth source is set and
+# takes precedence over your claude.ai login"）。
+# 后果：周五复盘每周按 token 计费一次，直接违反 spec §二「所有 LLM 调用走订阅的
+# Claude Code，禁止配置按 token 计费的 API key」。
+#
+# 这里只在本脚本的进程范围内剥掉，不动 openclaw.json —— 那个 key 被你其他 agent
+# 正常使用着，全局删掉会误伤。
+unset ANTHROPIC_API_KEY
+unset ANTHROPIC_AUTH_TOKEN
+# ---------------------------------------------------------------------------
+
 STAMP=$(TZ=America/Los_Angeles date +%Y-%m-%d)
 mkdir -p logs outbox
 
