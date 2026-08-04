@@ -54,14 +54,46 @@ $(cat config/thresholds.yaml)
 EOF
 )
 
-if ! claude -p --model opus "$PROMPT" > outbox/review.md 2> "logs/review_${STAMP}.err"; then
-    echo "CLAUDE_FAILED" >&2
+# CLAUDE_TIMEOUT_SECONDS 是进程级看门狗，不是业务阈值，故不进 config。
+# 存在的理由：claude 登录态失效时它会挂住而不是报错退出，没有看门狗会一直吊到
+# OpenClaw 任务超时，周五复盘就变成静默缺席——而缺席是最不该静默的一种失败。
+CLAUDE_TIMEOUT_SECONDS=900
+
+claude -p --model opus "$PROMPT" > outbox/review.md 2> "logs/review_${STAMP}.err" &
+CLAUDE_PID=$!
+WAITED=0
+while kill -0 "$CLAUDE_PID" 2>/dev/null; do
+    if [ "$WAITED" -ge "$CLAUDE_TIMEOUT_SECONDS" ]; then
+        kill -9 "$CLAUDE_PID" 2>/dev/null
+        echo "CLAUDE_TIMEOUT：headless Claude Code 超过 ${CLAUDE_TIMEOUT_SECONDS}s 未返回，已强杀。" >&2
+        echo "最常见原因：claude 登录态过期（claude -p 会挂住而非报错）。请在 Mac Mini 上跑 claude login 重新登录。" >&2
+        exit 1
+    fi
+    sleep 5
+    WAITED=$((WAITED + 5))
+done
+wait "$CLAUDE_PID"
+CLAUDE_RC=$?
+
+if [ "$CLAUDE_RC" -ne 0 ]; then
+    echo "CLAUDE_FAILED（退出码 ${CLAUDE_RC}）" >&2
     tail -40 "logs/review_${STAMP}.err" >&2
+    # 不留半成品：残留的空 review.md 会让下一轮排查误以为生成过
+    rm -f outbox/review.md
     exit 1
 fi
 
 if [ ! -s outbox/review.md ]; then
-    echo "EMPTY_REVIEW" >&2
+    echo "EMPTY_REVIEW：claude 返回空内容" >&2
+    exit 1
+fi
+
+# claude 认证失败时会把错误打到 stdout 并以 0 退出——不拦就会把这段错误当复盘包推出去。
+if head -5 outbox/review.md | grep -qiE "Failed to authenticate|API Error|authentication_error|Invalid API key"; then
+    echo "CLAUDE_AUTH_ERROR：claude 未通过认证，输出的是错误信息不是复盘包。" >&2
+    head -5 outbox/review.md >&2
+    echo "请在 Mac Mini 上跑 claude login 重新登录（须为订阅账号，不要配 API key）。" >&2
+    rm -f outbox/review.md
     exit 1
 fi
 
