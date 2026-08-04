@@ -16,3 +16,29 @@ booked_floor_consecutive_weeks: 2
 
 # 水箱周入箱定额。注意：这是防膨胀的上限，不是要冲的指标（见 Concept 页 A6 约束）
 weekly_inbox_quota: 15
+
+# ---------------------------------------------------------------------------
+# 以下两节不是「拍的数」，是把 spec 正文里写死的时限与窗口搬进配置。
+# 搬进来的唯一理由：硬约束「脚本硬编码任何一个数字都算失败」。
+# 出处逐条标注，改这里等于改 spec，请勿随手调。
+# ---------------------------------------------------------------------------
+
+# SLA 时限。出处：Build Spec · Phase 1 §四「sla_check.py 规则」一至四
+sla:
+  # 规则一：状态 inbox/Named 且 信号类型=signal，距触达时限起算超过此值
+  signal_hours: 24
+  # 规则二：状态 inbox/Named 且 来源=referral，距入箱日期超过此值
+  referral_hours: 48
+  # 规则三：win/loss 填写日期 − 对话日期 超过此值（已补填的也报一次，标注迟填）
+  # 单位是「天」不是「小时」：2026-08-04 Shawn 裁决 —— 日期 与 填写日期 均为纯日期
+  # 字段（无时间），两个纯日期之间不存在「24 小时」这个量，按日期差 ≤ 1 天判定。
+  winloss_fill_days: 1
+  # 规则四：台账 状态=草稿 且 创建超过此值 → 待签发积压
+  ledger_draft_hours: 48
+
+# 周窗口定义。出处：Build Spec · Phase 1 §四「周窗口：上周五 15:00 到本周五 15:00」
+week_window:
+  timezone: "America/Los_Angeles"
+  anchor_weekday: 4   # 0=周一 … 4=周五（Python weekday() 口径）
+  anchor_hour: 15
+  anchor_minute: 0
