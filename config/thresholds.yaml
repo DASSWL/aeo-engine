@@ -1,0 +1,18 @@
+# 阈值配置 —— AEO Engine A7 中枢
+# 依据：Build Spec · Phase 1 §一.1
+# 纪律：阈值只存在于本文件，脚本不得硬编码任何一个值。
+#
+# ⚠️ 以下三个数均为 v0.1 拍的数（初版估计，无实测依据）。
+#    校准约定：Phase 1 完成两周后，用实测分布回头校准；
+#    两周后的复盘包必须自动包含一次「实测分布 vs 拍的数」的校准建议。
+
+# Named 存量警报线：低于此值触发加水动作
+named_floor: 12
+
+# 约成通话警报线：连续两周低于此值触发加水动作
+booked_floor: 2
+# booked_floor 的「连续两周」窗口数——警报需连续几个周窗口低于 booked_floor 才触发
+booked_floor_consecutive_weeks: 2
+
+# 水箱周入箱定额。注意：这是防膨胀的上限，不是要冲的指标（见 Concept 页 A6 约束）
+weekly_inbox_quota: 15

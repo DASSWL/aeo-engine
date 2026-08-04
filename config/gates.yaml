@@ -1,0 +1,18 @@
+# 闸门配置 —— AEO Engine A7 中枢
+# 依据：Build Spec · Phase 1 §一.1
+# 纪律：闸门只存在于本文件，脚本不得硬编码任何一个值。
+
+# 邻域闸门：管对比页与 G2 类目挂靠。
+# 三个条件同时满足才算开启：win/loss 场次达标 + 竞替名单收敛。
+neighborhood:
+  # win/loss 攒够 5 到 10 场：min 是开闸下限，target 是理想样本量
+  win_loss_min: 5
+  win_loss_target: 10
+  # 竞替名单是否已从真实对话中收敛。手动置位——J0 重跑校准后由真人改这一行。
+  # 禁止脚本自动翻转：收敛与否是判断，不是计算。
+  competitor_list_converged: false
+
+# AEO 内容生产解冻状态。
+# 2026-08-04 Shawn 裁决：AEO 内容生产端解冻，默认启动；
+# 提问量检验降级为排序依据（只决定先写哪批 query），不再作为开工闸门。
+aeo_unfrozen: true

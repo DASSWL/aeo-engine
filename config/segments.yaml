@@ -1,0 +1,248 @@
+# ============================================================================
+# segments.yaml —— 5 个 v0 segment 的扫描与名单配置
+#
+# ⚠️⚠️ 状态：草稿，待 Shawn 审 —— 未定稿，不得据此开跑 Phase 2 扫描 ⚠️⚠️
+#
+# 依据：AEO Engine Concept 页（A1 感知的扫描清单、双维度标签定义、角色定义）
+#       AEO Engine 落地计划 v0.1 §三 Phase 3 J0（5 个 v0 segment 的选定与落选说明）
+#       源头：Mega Doc Appendix D 的 12 segment 注册表
+#
+# 起草人对 Shawn 的交代：
+#   segment 的「名字」与「一句话定义」有出处（落地计划已写死 A–E 五个名字）。
+#   但下面每个 segment 的 linkedin_keywords / hiring_keywords / subreddits /
+#   apollo / titles 四类内容，**在现有 Notion 页里没有任何出处**——Concept 页
+#   只给了通用的扫描类型（抱怨帖、在招 video producer 的公司、职位变动……）
+#   和通用的角色定义，没有按 segment 实例化过。因此以下全部是我按 segment
+#   定义推演的初稿，属于「拍的」，需要你逐条过目。
+#
+#   请重点看三处最可能拍错的地方：
+#     1. subreddits：社区活跃度与版规（多数技术/创作社区禁自我推广）我没有实地
+#        核过，这份清单是按主题相关性列的，不是按「确实有存量提问帖」列的。
+#     2. apollo.employee_count / industry：区间是按 segment 画像猜的，
+#        Apollo 里实际能筛出多少人未验证。
+#     3. titles：pain feeler 与 decision maker 的分界在小公司会塌缩成同一人
+#        （Concept 页已允许同一信号打「双角色」标签），A/B 段尤其明显。
+#
+#   定稿后此文件即 A1 扫描清单的唯一来源，Phase 2 按此实例化。
+# ============================================================================
+
+meta:
+  version: "0.1-draft"
+  status: "draft_pending_review"      # 定稿后改为 approved，并记 reviewed_by / reviewed_at
+  drafted_at: "2026-08-04"
+  reviewed_by: null
+  reviewed_at: null
+  source_registry: "Mega Doc Appendix D（12 segment 注册表）"
+
+# 全局默认：各 segment 未覆盖时回落到这里。
+# 出处：Concept 页 A1「招聘扫描关键词（video producer / video editor 等）」。
+defaults:
+  hiring_keywords_base:
+    - "video producer"
+    - "video editor"
+    - "video content manager"
+    - "media asset manager"
+  # 通用角色画像（Concept 页原文）：
+  #   pain feeler   = 每天被找素材折磨的痛点持有者
+  #   decision maker = 预算和采购的拍板人
+  # 小公司两角色常为同一人 → 允许打「双角色」标签
+  role_note: "同一公司优先配对 pain feeler 与 decision maker 入箱；只挖到单边的降级处理并标注缺失角色"
+
+segments:
+
+  # --------------------------------------------------------------------------
+  A:
+    name: "品牌侧 B2B 营销"
+    # 出处：落地计划「A 品牌侧 B2B 营销（现行主力盘，锚点）」
+    definition: "自建或外包产出大量品牌与产品视频的 B2B 公司市场部，素材沉在网盘和剪辑工程里、复用时找不回来。"
+    rationale_from_plan: "现行主力盘，作为锚点 segment"
+    linkedin_keywords:      # 抱怨帖 / 讨论帖的检索词（草稿）
+      - "find old footage"
+      - "video asset library mess"
+      - "where did we save that clip"
+      - "brand video archive"
+      - "content repurposing workflow"
+    hiring_keywords:        # 在招即痛点存在的 signal（草稿）
+      - "video producer"
+      - "video editor"
+      - "brand content producer"
+      - "marketing video specialist"
+    subreddits:             # 草稿：按主题相关性列，未核活跃度与版规
+      - "r/marketing"
+      - "r/B2BMarketing"
+      - "r/videography"
+      - "r/editors"
+    apollo:                 # 草稿：区间与行业未在 Apollo 实测
+      industries: ["computer software", "information technology & services", "marketing & advertising"]
+      employee_count: "51-1000"
+      keywords: ["b2b marketing", "brand content", "demand generation"]
+    titles:
+      pain_feeler:
+        - "Content Marketing Manager"
+        - "Video Producer"
+        - "Senior Video Producer"
+        - "Creative Director"
+        - "Brand Content Manager"
+      decision_maker:
+        - "Head of Marketing"
+        - "VP Marketing"
+        - "CMO"
+        - "Director of Brand"
+
+  # --------------------------------------------------------------------------
+  B:
+    name: "创作者媒体与教育"
+    # 出处：落地计划「B 创作者媒体与教育（proxy 变量天然可批扫，一层决策链）」
+    definition: "以视频为主要产出的媒体机构、课程与教育机构，长视频存量大、需要按讲了什么反复检索复用。"
+    rationale_from_plan: "proxy 变量天然可批扫；决策链只有一层，触达到人即触达到拍板人"
+    linkedin_keywords:
+      - "video archive search"
+      - "course video library"
+      - "repurpose long form video"
+      - "podcast video clips"
+      - "searchable transcript"
+    hiring_keywords:
+      - "video editor"
+      - "content producer"
+      - "instructional video producer"
+      - "podcast producer"
+    subreddits:
+      - "r/NewTubers"
+      - "r/youtubers"
+      - "r/podcasting"
+      - "r/edtech"
+      - "r/instructionaldesign"
+    apollo:
+      industries: ["media production", "e-learning", "online media", "education management"]
+      employee_count: "11-500"
+      keywords: ["video course", "creator", "media production", "online education"]
+    titles:
+      pain_feeler:
+        - "Video Editor"
+        - "Content Producer"
+        - "Head of Content"
+        - "Instructional Designer"
+      decision_maker:
+        - "Founder"
+        - "Managing Editor"
+        - "Head of Production"
+        - "COO"
+      # 注：本 segment 一层决策链，两类 title 高频重合 → 预期「双角色」标签占比最高
+
+  # --------------------------------------------------------------------------
+  C:
+    name: "内容重型 D2C 自有创意团队"
+    definition: "自建 in-house 创意团队、按周产出大量广告与商品视频的 D2C 品牌，素材迭代快、版本多、复用率低。"
+    rationale_from_plan: "内容重型且创意团队在内部，痛点持有者与预算方同处一司"
+    linkedin_keywords:
+      - "in-house creative team"
+      - "ugc video library"
+      - "ad creative testing"
+      - "creative asset management"
+      - "product video archive"
+    hiring_keywords:
+      - "video editor"
+      - "creative producer"
+      - "social media video producer"
+      - "content operations manager"
+    subreddits:
+      - "r/ecommerce"
+      - "r/DTC"
+      - "r/PPC"
+      - "r/socialmedia"
+    apollo:
+      industries: ["consumer goods", "retail", "apparel & fashion", "cosmetics"]
+      employee_count: "51-1000"
+      keywords: ["dtc", "direct to consumer", "ecommerce brand", "in-house creative"]
+    titles:
+      pain_feeler:
+        - "Creative Producer"
+        - "Video Editor"
+        - "Content Operations Manager"
+        - "Art Director"
+      decision_maker:
+        - "Head of Creative"
+        - "VP Brand"
+        - "Director of Ecommerce"
+        - "CMO"
+
+  # --------------------------------------------------------------------------
+  D:
+    name: "直播电商平台与商家"
+    # 出处：落地计划「D 直播电商平台与商家（Loupe 已验证）」
+    definition: "做直播带货的平台与头部商家，直播录像时长极大、事后要按商品与话术切片复用。"
+    rationale_from_plan: "Loupe 已验证——本 segment 有已成交的真实用例可作 case study 证据"
+    linkedin_keywords:
+      - "live commerce"
+      - "livestream highlights"
+      - "live shopping clips"
+      - "stream vod repurposing"
+      - "livestream archive"
+    hiring_keywords:
+      - "livestream producer"
+      - "video editor"
+      - "live commerce operations"
+      - "stream content manager"
+    subreddits:
+      - "r/ecommerce"
+      - "r/livestreamfail"     # 草稿：主题相关但社区性质偏娱乐，可能应删
+      - "r/Twitch"
+      - "r/socialmedia"
+    apollo:
+      industries: ["retail", "internet", "consumer goods", "marketing & advertising"]
+      employee_count: "51-5000"
+      keywords: ["live commerce", "live shopping", "livestream selling"]
+    titles:
+      pain_feeler:
+        - "Livestream Producer"
+        - "Content Operations Manager"
+        - "Video Editor"
+      decision_maker:
+        - "Head of Live Commerce"
+        - "Director of Ecommerce"
+        - "GM"
+        - "VP Growth"
+
+  # --------------------------------------------------------------------------
+  E:
+    name: "游戏与电竞"
+    # 出处：落地计划「E 游戏与电竞（公开信号密度最高）」
+    definition: "游戏厂商、战队与电竞赛事方，海量比赛与实况录像需要按事件、选手、语音检索出片。"
+    rationale_from_plan: "公开信号密度最高——扫描面最容易出量，适合检验填补速度"
+    linkedin_keywords:
+      - "esports highlights"
+      - "vod review workflow"
+      - "game capture archive"
+      - "tournament footage"
+      - "clip production pipeline"
+    hiring_keywords:
+      - "video editor"
+      - "esports content producer"
+      - "highlight editor"
+      - "broadcast producer"
+    subreddits:
+      - "r/esports"
+      - "r/gamedev"
+      - "r/editors"
+      - "r/Twitch"
+    apollo:
+      industries: ["computer games", "entertainment", "sports"]
+      employee_count: "11-1000"
+      keywords: ["esports", "gaming", "tournament", "game studio"]
+    titles:
+      pain_feeler:
+        - "Esports Content Producer"
+        - "Video Editor"
+        - "Highlight Editor"
+        - "Social Media Manager"
+      decision_maker:
+        - "Head of Content"
+        - "Marketing Director"
+        - "Team Manager"
+        - "Founder"
+
+# ============================================================================
+# 落选备忘（出处：落地计划 §三 Phase 3 J0）
+#   H 教会媒体：先验排名前三，但现有传感器（LinkedIn、Apollo）在该渠道覆盖差，
+#   填补速度测试会失真 → 待传感器扩展后再评估。此处仅留档，不进扫描清单。
+# ============================================================================
