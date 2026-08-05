@@ -6,7 +6,20 @@ Vivu AEO Engine 的执行仓库。当前落到 **Phase 2（A1 感知 v0.1）**�
 |---|---|---|
 | Phase 0 | A6 记忆层（Notion 五库） | 已建成（迁移未执行，见 Phase 0 实现结果页） |
 | Phase 1 | A7 中枢（度量脚本 + OpenClaw 两个定时任务） | 已上线，观察期中 |
-| Phase 2 | A1 感知（扫描 playbook + 接入脚本 + 调度试验） | **代码与文档已交付，未开跑**——待真人做完下面三件事 |
+| Phase 2 | A1 感知（扫描 playbook + 接入脚本 + 调度试验） | **已开跑**（2026-08-04 起），见下方进度 |
+
+### Phase 2 开跑进度（2026-08-04）
+
+| 前置 | 状态 |
+|---|---|
+| 三个 Claude scheduled task | ✅ 已创建（probe_daily 09:00 / linkedin_daily 09:30 / linkedin_reddit_weekly 周一 10:00） |
+| Claude in Chrome 五站点授权与登录 | ✅ 已实测通过（Browser 2：LinkedIn / Reddit / ChatGPT / Perplexity / Gemini 全部已登录） |
+| 探测问题入 Query 库 | ✅ 10 条已写入并逐字段回读核对（5 任务式 + 5 评估式） |
+| 首轮周批扫真人盯跑 | ⏳ 待下周一 10:00 |
+| `APOLLO_API_KEY` | ❌ 仍缺，Apollo 链路未通 |
+| `SERPAPI_KEY` / Google Ads 凭据 | ❌ 仍缺（均有降级路径或列为可选，不阻塞） |
+
+**五库当前状态**：Query 库 10 行（探测问题），其余四库为空。
 
 依据文档在 Notion，本仓库不复制其内容，只引用：
 Build Spec Phase 0 / 1 / 2 与对应的实现结果页。
