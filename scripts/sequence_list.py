@@ -70,6 +70,33 @@ def credits(session, cfg, api_key):
         return None
 
 
+def pipeline_companies(env):
+    """水箱里已有的公司名（归一化）。
+
+    **这不是优化，是硬约束。** J4 的 warm 链每天从水箱出草稿由真人手工发 LinkedIn 私信；
+    冷 sequence 一旦激活，Apollo 会自动给名单里的人发邮件。两条链互不知情——
+    draft_runner 不看 sequence，apollo_sequence 不看水箱。
+    同一家公司同时被两条链打，对方看到的是「这家公司在两个渠道同时轰我」，
+    而那正是 warm 触达想避免的观感。
+
+    2026-08-05 实测：A 段候选 400 家里有 5 家已在水箱（bolt / Circle / Doxis /
+    Firmable / saas），而水箱 A 段一共只有 6 家公司——**83% 重合**。
+    原因是两条链用同一份 segments.yaml 条件、同一个 Apollo 默认排名、都从 page 1 起。
+    """
+    notion = ac.Notion(env["NOTION_TOKEN"], env["NOTION_VERSION"])
+    rows = notion.query_all(env["DS_PIPELINE"])
+    out = {}
+    for r in rows:
+        p = r.get("properties", {})
+        name = ac.rich_text(p, "公司")
+        key = " ".join((name or "").split()).lower()
+        if key:
+            out.setdefault(key, {"公司": name,
+                                 "segment": ac.select_name(p, "segment"),
+                                 "状态": ac.select_name(p, "状态")})
+    return out
+
+
 def looks_like_agency(name):
     low = (name or "").lower()
     return [m for m in AGENCY_MARKERS if m in low]
@@ -153,8 +180,19 @@ def main():
 
         after = credits(session, cfg, api_key)
 
-        rows = []
-        for name, c in list(companies.items())[:args.companies]:
+        tank = pipeline_companies(env)
+
+        rows, excluded = [], []
+        for name, c in companies.items():
+            if len(rows) >= args.companies:
+                break
+            key = " ".join(name.split()).lower()
+            hit = tank.get(key)
+            if hit:
+                # 硬约束：水箱已有的公司一律不进 sequence 名单，没有开关。
+                excluded.append({"公司": name, "why": "已在水箱",
+                                 "水箱 segment": hit["segment"], "水箱状态": hit["状态"]})
+                continue
             flags = looks_like_agency(name)
             rows.append({
                 "公司": name,
@@ -180,6 +218,9 @@ def main():
             "pages_fetched": pages_done, "people_seen": people_seen,
             "companies_found": len(companies),
             "companies_returned": len(rows),
+            "excluded_already_in_pipeline": len(excluded),
+            "excluded_detail": excluded,
+            "pipeline_companies_total": len(tank),
             "both_sides_present": len(both),
             "suspected_agencies": len(suspects),
             "suspected_agency_rate": (round(len(suspects) / len(rows), 3) if rows else None),
@@ -196,6 +237,10 @@ def main():
         print("  Apollo 匹配总人数 : {}".format(total_entries), file=sys.stderr)
         print("  翻页 {} 页，看过 {} 人".format(pages_done, people_seen), file=sys.stderr)
         print("  去重后公司数      : {}".format(len(rows)), file=sys.stderr)
+        print("  剔除·已在水箱     : {}（硬约束，无开关）".format(len(excluded)), file=sys.stderr)
+        for e in excluded[:8]:
+            print("      └ {}（水箱 {} / {}）".format(
+                e["公司"], e["水箱 segment"], e["水箱状态"]), file=sys.stderr)
         print("  两侧角色齐的公司  : {}".format(len(both)), file=sys.stderr)
         print("  疑似代理商        : {}（{}）".format(
             len(suspects),
