@@ -51,14 +51,31 @@ from keyword_volume import classify_type   # noqa: E402
 SCRIPT = "buyer_quote_queries"
 
 
-def split_clauses(text, seps):
-    """按分隔符切子句。只做首尾去空白，不做任何其他处理。"""
-    parts = [text]
+QUOTE_SPAN = re.compile(r'"([^"]{2,})"')
+
+
+def split_clauses(text, ex):
+    """把一条「买家原话」切成子句。切法只做切分与去空白，一个词都不改。
+
+    真人写这一列的格式是：【桶名】"逐字原话" / "逐字原话" 【下一个桶】…
+    所以**引号跨度才是天然单位**，不是句号——先取引号跨度，取不到再退回分隔符。
+    （2026-08-05 Marvin 那行实测：只按句号切会把两段引语粘成 42 词的一坨，
+      然后被 max_words 判掉，看起来像「这段话里没有 query」。
+      切错造成的 0 和真的没有造成的 0 长得一模一样，所以这里必须切对。）
+    """
+    seps = ex["clause_separators"]
+    units = []
+    if ex.get("quote_spans_first"):
+        units = [m.group(1) for m in QUOTE_SPAN.finditer(text)]
+    if not units:
+        # 退化路径：先把桶名标记也当分隔符，避免【tag】黏在句首
+        units = [text]
+        for mark in ex.get("bucket_marks") or []:
+            units = [seg for u in units for seg in u.split(mark)]
+
+    parts = units
     for sep in seps:
-        nxt = []
-        for p in parts:
-            nxt.extend(p.split(sep))
-        parts = nxt
+        parts = [seg for p in parts for seg in p.split(sep)]
     return [p.strip() for p in parts if p.strip()]
 
 
@@ -94,7 +111,7 @@ def build_candidates(winloss_rows, bq_cfg, scan_cfg, tz):
             sources.append(src)
             continue
 
-        for idx, clause in enumerate(split_clauses(quote, ex["clause_separators"])):
+        for idx, clause in enumerate(split_clauses(quote, ex)):
             words = clause.split()
             if not (ex["min_words"] <= len(words) <= ex["max_words"]):
                 rejected.append({"clause": clause, "reason": "词数 {} 不在 [{}, {}]".format(

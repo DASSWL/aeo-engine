@@ -8,7 +8,8 @@
 而 J1 第 5 类「痛点级 query 的 AEO 内容」的输入就是这个库——库不长，
 那条产线就永远只能对着这 10 条我们自己写的问题写内容。
 
-Phase 0 冻结的 `数据来源` 有四个合法取值，对应四条进料链。本脚本逐条判定：
+Query 库的 `数据来源` 每个合法取值对应一条进料链（Phase 0 冻结四个，
+2026-08-05 经 Shawn 拍板 additive 解冻加了「A1 扫描」「AI 建议」两个）。本脚本逐条判定：
   • 现在能不能产**新** query（建行），还是只能改已有行
   • 断在哪一环：缺凭据 / 缺调度 / 缺脚本 / 缺 schema / 缺真人动作
   • 修通需要什么，其中哪些是真人的决定
@@ -43,7 +44,7 @@ import aeo_scan as sc        # noqa: E402
 SCRIPT = "query_intake_health"
 
 # ---------------------------------------------------------------------------
-# 四条链的结构事实。
+# 各条链的结构事实。
 #
 # 这些不是阈值、不是可调参数，是「哪个脚本写哪个 数据来源 值」这一层的代码事实，
 # 所以写在脚本里而不是 config——写进 config 会暗示它们可以改，而改它们的唯一
@@ -100,16 +101,47 @@ CHAINS = [
                     "那是给 J0 竞替名单和 J1 对比页用的，不是新词。",
     },
     {
-        "数据来源": "买家原话",
+        # Phase 0 字段表 2026-08-05 解冻，additive 加的两个取值之一。
+        "数据来源": "AI 建议",
+        "writer": "scripts/query_candidates.py",
+        "creates_rows": True,
+        "updates_rows": False,
+        "input_kind": "pool",
+        "input_desc": "data/query_candidates.jsonl（每日探测追问收来的候选池）",
+        "credentials": [],
+        "kind": "假设源，不是发现",
+        "kind_why": "它能带回我们没想到的**问法**，这一点是真的。但它是模型说"
+                    "「人们常这么问」，不是任何人真的搜过——没有市场证据。"
+                    "Shawn 2026-08-05 拍板它直接进库标「候选」、月搜索量留空，"
+                    "所以 Query 库里会同时躺着有证据的词和没证据的词，靠本列区分。"
+                    "它要变成发现，必须走完 Keyword Planner 那一步拿到真实搜索量。",
+    },
+    {
+        # 解冻加的第二个取值。Reddit / LinkedIn 扫描已经在逐字采集真实提问，
+        # 但把它们变成 query 的脚本还没建——这是当前唯一「有值无链」的一条。
+        "数据来源": "A1 扫描",
         "writer": None,
         "creates_rows": None,
         "updates_rows": None,
+        "input_kind": "pipeline",
+        "input_desc": "水箱里 `来源 = A1 扫描` 的行的「信号原文」（Reddit 存量提问帖等）",
+        "credentials": [],
+        "kind": "真·发现（未建）",
+        "kind_why": "Reddit 存量提问帖的标题就是活人打出来的问句，"
+                    "而 scan_reddit_weekly.md 已经写死「原文照抄、不改写不翻译不概括」。"
+                    "这是全系统第二个真实语言来源，取值已解冻可用，脚本还没建。",
+    },
+    {
+        "数据来源": "买家原话",
+        "writer": "scripts/buyer_quote_queries.py",
+        "creates_rows": True,
+        "updates_rows": False,
         "input_kind": "winloss",
         "input_desc": "win/loss 库的「买家原话」列",
         "credentials": [],
-        "kind": "唯一的真·发现",
-        "kind_why": "唯一以**真实对话**为源的链：买家实际怎么说，不是我们觉得他会怎么搜。"
-                    "也是唯一没有脚本的一条。",
+        "kind": "最强的真·发现",
+        "kind_why": "以**真实对话**为源：买家实际怎么说，不是我们觉得他会怎么搜，"
+                    "也不是模型说人们会怎么问。四条来源里唯一不经任何中介的一条。",
     },
 ]
 
@@ -120,13 +152,18 @@ CHAINS = [
 
 def cron_names():
     """本机 OpenClaw 定时任务名单。取不到就如实说取不到，不猜。"""
+    # 超时给足：openclaw 要起 gateway，冷启动时 60s 不够，实测超时过一次。
+    # 超时不是「没有定时任务」，两者混同会让报告说假话，所以失败必须带上原因。
     try:
         out = subprocess.run(["openclaw", "cron", "list"],
-                             capture_output=True, text=True, timeout=60)
-    except (OSError, subprocess.SubprocessError) as exc:
+                             capture_output=True, text=True, timeout=180)
+    except subprocess.TimeoutExpired:
+        return None, "openclaw cron list 超时（180s）——查不到不等于没有，别按「无定时任务」读"
+    except OSError as exc:
         return None, "openclaw cron list 执行失败：{}".format(exc)
     if out.returncode != 0:
-        return None, "openclaw cron list 退出码 {}".format(out.returncode)
+        return None, "openclaw cron list 退出码 {}：{}".format(
+            out.returncode, (out.stderr or "")[:200])
     # 输出是定宽列。按表头里 Name / Schedule 的列位切片——
     # 直接 split() 会把带空格的任务名（"Agent Eden reconcile"）切成第一个词，
     # 于是报告里的名单看起来像一堆残词。
@@ -225,6 +262,28 @@ def kw_csv_facts():
             "files": [os.path.basename(f) for f in files]}
 
 
+def candidate_pool_facts():
+    """AI 建议候选池现状。文件不存在 = 追问环节还没产出过，不是错误。"""
+    path = os.path.join(ac.DATA_DIR, "query_candidates.jsonl")
+    if not os.path.exists(path):
+        return {"total": 0, "committed": 0, "exists": False}
+    total = committed = 0
+    with open(path, encoding="utf-8") as fh:
+        for line in fh:
+            if not line.strip():
+                continue
+            total += 1
+            if '"committed_on"' in line:
+                committed += 1
+    return {"total": total - committed, "committed": committed, "exists": True}
+
+
+def pipeline_a1_count(notion, env):
+    """水箱里来自 A1 扫描的行数——A1 扫描链的燃料。"""
+    return sum(1 for r in notion.query_all(env["DS_PIPELINE"])
+               if ac.select_name(r.get("properties", {}), "来源") == "A1 扫描")
+
+
 def serp_writable(notion, env):
     """SERP 链就算有 key，今天能落在 Notion 上的行数。
 
@@ -317,6 +376,22 @@ def diagnose(chain, facts, env, crons):
                                         "现在是 0".format(wl["total"])))
             human.append("对话后 24 小时内把「买家原话」逐字填进 win/loss 库"
                          "（零回复的 cold outbound 天然没有原话，攒再多也不产燃料）")
+    elif chain["input_kind"] == "pool":
+        n = facts["candidate_pool"]
+        d["燃料"] = "候选池 {} 条，其中已写进 Query 库 {} 条".format(
+            n["total"], n["committed"])
+        if n["total"] == 0:
+            breaks.append(("缺真人动作", "候选池是空的。追问环节写在 playbook §11，"
+                                        "要等下一次探测真的跑起来才有料——"
+                                        "而探测当前卡在 Perplexity 未登录"))
+            human.append("恢复 Perplexity 登录态，否则每日探测整体停机，追问也无从谈起")
+    elif chain["input_kind"] == "pipeline":
+        n = facts["pipeline_a1"]
+        d["燃料"] = "水箱 `来源 = A1 扫描` 的行 {} 条".format(n)
+        if n == 0:
+            breaks.append(("缺真人动作", "水箱里 `来源 = A1 扫描` 的行是 0 条——"
+                                        "Reddit / LinkedIn 周批扫还没产出过任何一行"))
+            human.append("跑首轮周批扫（Reddit 存量提问帖），让 A1 扫描侧真的有料")
     elif chain["input_kind"] == "query_db":
         d["燃料"] = "Query 库 {} 行，其中 `数据来源` 为空、本链可写的 {} 行".format(
             facts["query_db"]["total"], facts["serp_writable"])
@@ -355,7 +430,7 @@ def render(result):
         L += ["⚠️ 线上 `数据来源` 有取值没有对应的进料链：{}".format(
             ", ".join(result["sources_without_chain"])), ""]
 
-    L += ["## 四条链", "",
+    L += ["## {} 条链".format(len(result["chains"])), "",
           "| 数据来源 | 能产新 query | 断在哪 | 修通需要什么 | 需真人决定 |",
           "|---|---|---|---|---|"]
     for c in result["chains"]:
@@ -400,7 +475,7 @@ def render(result):
     L += ["## 调度现状", "",
           "- 本机 OpenClaw 定时任务：{}".format(
               ", ".join(result["cron_names"]) if result["cron_names"]
-              else result["cron_error"] or "无"),
+              else "⚠️ " + (result["cron_error"] or "无")),
           "- 三个 Claude scheduled task 的材料文件：{}".format(
               ", ".join(result["claude_task_materials"]) or "无"),
           "- 注：Claude 侧任务建在真人桌面的 Claude 里，本机查不到运行状态；"
@@ -426,12 +501,15 @@ def main():
         crons, cron_err = cron_names()
 
         probe_q = scan_cfg.get("probe", {}).get("questions") or {}
+        pool = candidate_pool_facts()
         facts = {
             "query_db": query_db_facts(notion, env),
             "winloss": winloss_facts(notion, env),
             "kw_csv": kw_csv_facts(),
             "serp_writable": serp_writable(notion, env),
             "scan_probe_question_count": sum(len(v or []) for v in probe_q.values()),
+            "candidate_pool": pool,
+            "pipeline_a1": pipeline_a1_count(notion, env),
         }
 
         legal = legal_source_values(notion, env)
