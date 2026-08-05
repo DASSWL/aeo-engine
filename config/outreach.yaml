@@ -287,6 +287,32 @@ receipt:
     stamp_field: "触达时限起算"   # 写当前时间戳
     # 也在「下一步动作」追加一行留痕，便于事后核对是谁在什么时候确认的
     append_next_action: "已由真人发出（回执确认）"
+  # ---------------------------------------------------------------------------
+  # 「触达中」是个无人看守的状态（2026-08-05 发现，Shawn 当日裁定：先不管）
+  #
+  # 现状：sla_check.py 的 ACTIONABLE_STATUSES 只有 inbox / Named，规则一二不盯「触达中」；
+  #       draft_runner 的队列同样只认 inbox / Named，触达中的行正确地出队不再重推。
+  #       结果是：私信发出去之后如果对方不回，这行永远停在「触达中」，没有任何机制翻出它。
+  #       反向作用更隐蔽——metrics.py:30 把「触达中」算进 NAMED_STATUSES，
+  #       也就是死行会一直垫高 Named 存量，让水箱看起来比实际健康，推迟 named_floor 警报。
+  #
+  # 为什么这是 spec 的洞不是实现的 bug：Phase 3 spec 的 warm 触达写到「真人回复确认后
+  # 更新状态与时间戳」就结束了；三封式 cadence 是给冷 outreach sequence 的，不覆盖
+  # LinkedIn 私信这条 warm 链。「发出去多久没回该怎么办」spec 没定义。
+  #
+  # 2026-08-05 裁定：**先不管（方案 C）**。现在只有 1 条真实触达，拍任何「多少天算没回音」
+  # 都是凭空。等本周攒到 3–5 条，拿真实回复间隔去定 no_reply_days，那个数才有出处
+  # ——与 Phase 1「拍的数两周后用实测分布校准」同一条做法。
+  #
+  # 复查触发条件：水箱里「触达中」达到 3 条，或首条触达满 7 天仍无回音。
+  # 届时若要做，走纯追加：thresholds.yaml 加 no_reply_days + 新脚本，
+  # **不改 sla_check.py**（硬约束：不动 Phase 1/2 的脚本）。
+  # ---------------------------------------------------------------------------
+  stale_contacted:
+    watched: false
+    decision: "2026-08-05 Shawn 裁定：先不管，等样本足够再定阈值"
+    revisit_when: "「触达中」达到 3 条，或首条触达满 7 天仍无回音"
+    first_contacted_at: "2026-08-05"   # Luthfi Nur / ONIC Esports
   # 兜底：不配规则或规则没生效时，次日 daily_sla 由真人核对
   fallback: "次日 daily_sla 人工核对漏更新的行"
   # 2026-08-05 已实测端到端：Shawn 在群里发 `sent 3b3059d9-6933-81d1-9876-faa73adaa1e7`，
