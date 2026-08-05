@@ -76,12 +76,11 @@
 - 分组：`面向角色 = pain feeler` → 任务式那套；`面向角色 = decision maker` → 评估式那套
 - 每套取 `probe.questions_per_set` 条（当前 5）
 
-> ⚠️ **Query 库当前没有探测问题**（五库为空）。两套问题的 v1 草稿在
-> `prompts/probe_questions_v1.md`，**状态是【草稿待审】，真人过目后才入 Query 库**
-> （spec §一.3：「首轮真人过目后入 Query 库」）。
-> 在问题入库之前，本 playbook 跑起来会取到 0 条问题 —— 此时**不要**改用草稿文件里的问题
-> 硬跑，而是走 §9 上报「Query 库无探测问题，等待真人入库」并结束。
-> 这是刻意的：绕过审核的问题一旦跑出 7 天数据，就会被当成基线用下去。
+> ✅ **Query 库已有 10 条探测问题**（2026-08-04 由 `scripts/probe_questions_sync.py` 写入，
+> pain feeler 5 条 + decision maker 5 条，逐字与 `scan.yaml` 定稿一致）。
+> 正常路径就是从 Query 库读。若某天读到 0 条，那是异常，走 §9 上报，
+> **不要**改用 `prompts/probe_questions_v1.md` 草稿文件里的问题硬跑——
+> 绕过审核的问题一旦跑出 7 天数据，就会被当成基线用下去。
 
 ---
 
