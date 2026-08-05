@@ -289,8 +289,13 @@ receipt:
     append_next_action: "已由真人发出（回执确认）"
   # 兜底：不配规则或规则没生效时，次日 daily_sla 由真人核对
   fallback: "次日 daily_sla 人工核对漏更新的行"
-  # ⚠️ 未实测：回执 handler 需要真人在群里发一条真实回执才能验证端到端。
-  verified_end_to_end: false
+  # 2026-08-05 已实测端到端：Shawn 在群里发 `sent 3b3059d9-6933-81d1-9876-faa73adaa1e7`，
+  # sales agent 调 receipt_apply.py --commit，水箱行 inbox → 触达中、时间戳已写、
+  # readback_ok=true（改完重新拉线上数据核对，不信自己的回执）。
+  # agent 走的是脚本路径，没有自己拼 Notion 请求——AGENTS.md 那条规则生效。
+  verified_end_to_end: true
+  verified_at: "2026-08-05"
+  verified_with_row: "3b3059d9-6933-81d1-9876-faa73adaa1e7"  # Luthfi Nur / ONIC Esports
 
 # ---------------------------------------------------------------------------
 # Apollo 冷 outreach sequence
