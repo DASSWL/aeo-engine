@@ -1,0 +1,287 @@
+# ============================================================================
+# scan.yaml —— Phase 2（A1 感知 v0.1）的扫描规则与数字
+#
+# ⚠️ 状态：2026-08-04 起草，**未经 Shawn 审核**。不要当定稿用。
+#
+# 为什么另起一个文件而不是并进 segments.yaml：
+#   segments.yaml 是 2026-08-04 Shawn 逐条过目后定稿的文件，里面每一段都被审过。
+#   本文件的内容有一半是「推演待校准」——把没出处的东西塞进已审过的文件，
+#   会让「审过」这三个字失去意义，也让后来人分不清哪些是 Shawn 点过头的。
+#   （Phase 1 实现结果 §九② 的原话：定稿不等于内容有出处。）
+#   审核通过后可以并入 segments.yaml，也可以就留在这里，由 Shawn 定。
+#
+# Build Spec Phase 2 §四 原文写的是「signal / intent 判定表和角色 title 判定表
+# 从 config/segments.yaml 读取」。实际情况：
+#   * 角色 title 判定表  → segments.yaml 里有（各 segment 的 titles 节），照 spec 读。
+#   * signal / intent 判定表 → segments.yaml 里**没有**，spec 假设了一个不存在的表。
+#     该表落在本文件 signal_intent 节，同样是「从 config 读、不写死在 playbook 里」。
+#
+# 出处标注纪律（与 segments.yaml 同）：
+#   【出处：xxx】     = 能指到具体页面或文件的原文
+#   【推演待校准】     = 起草人按定义推演的，Notion 里没有出处，首轮实跑后回头校准
+# ============================================================================
+
+meta:
+  version: "0.1"
+  status: "draft_unreviewed"      # 待 Shawn 审核；审核通过后改 approved 并记 reviewed_at
+  drafted_at: "2026-08-04"
+  drafted_for: "Build Spec · Phase 2：A1 感知 v0.1"
+
+# ---------------------------------------------------------------------------
+# 一、每轮上限与频率（红线，playbook 与脚本都读这里）
+# ---------------------------------------------------------------------------
+caps:
+  # 每 segment 每轮最多写入水箱的条数，防膨胀。
+  # 【出处：Phase 2 spec §四「playbook 文件规范」——每 segment 每轮最多 10 条】
+  per_segment_per_round: 10
+
+  # 水箱周入箱定额不在本文件重复定义，指向 Phase 1 的唯一来源，避免两处漂移。
+  # 【出处：config/thresholds.yaml 的 weekly_inbox_quota（当前 15）】
+  weekly_inbox_quota_ref: "config/thresholds.yaml:weekly_inbox_quota"
+
+frequency:
+  # 频率写死，不得加频。【出处：Phase 2 spec §二 硬约束逐字】
+  linkedin_weekly: "每周一次（周批扫）"
+  linkedin_daily: "每日一次（日小扫）"
+  reddit_weekly: "每周一次"
+  probe_daily: "每日一次"
+
+# ---------------------------------------------------------------------------
+# 二、signal / intent 判定表
+#
+# ⚠️ 整节【推演待校准】。Concept 页只冻结了 signal 与 intent 两个选项名
+#    （见 Phase 0 核对清单 水箱 §9），没有给判定规则。
+#    以下规则是起草人按「signal = 情境证据，intent = 明示购买或选型意图」推演的。
+#    唯一有出处的一条是 hiring → signal（见该条标注）。
+# ---------------------------------------------------------------------------
+signal_intent:
+  # 命中任一 intent_markers 即判 intent；否则判 signal。大小写不敏感，按子串匹配。
+  intent_markers:
+    - "looking for a tool"
+    - "any recommendations"
+    - "which tool"
+    - "alternative to"
+    - "we need this"
+    - "recommend a"
+    - "best tool for"
+    - "evaluating"
+    - "anyone using"
+    - "worth it"
+  default: "signal"
+
+  # 硬规则，优先于 intent_markers（命中即定，不再看 marker）：
+  hard_rules:
+    # 【出处：Phase 2 spec §四「招聘命中是公司级信号」】
+    - when: "招聘搜索命中（在招 video producer / editor 的公司）"
+      信号类型: "signal"
+      角色标签: "decision maker"   # 【出处：spec §一.1「招聘信号归 decision maker 侧」】
+      备注: "公司级信号：人名留空、下一步动作写「待 Apollo 反查」、追加 data/apollo_backfill.csv"
+    # 【出处：spec §一.1「『we need this』类评论标高优先级写入水箱」】
+    - when: "自己帖子下的「we need this」类评论"
+      信号类型: "intent"
+      优先级: "高"
+
+# ---------------------------------------------------------------------------
+# 三、职位变动的识别方式
+#
+# ⚠️ 整节【推演待校准】。spec 只写了「职位变动」是三组搜索之一，没写用什么机制找。
+#    LinkedIn 的「换工作」筛选器在 Sales Navigator 里，普通账号搜不到；
+#    这里退而用内容搜索匹配公开的换岗宣告帖。首轮盯跑时重点看这组的产出量，
+#    如果基本无产出，说明该机制不成立，应改为 Apollo 侧的 job-change 信号或直接砍掉。
+# ---------------------------------------------------------------------------
+job_change:
+  announcement_markers:
+    - "excited to announce"
+    - "excited to share"
+    - "starting a new position"
+    - "new role"
+    - "joining"
+    - "i'm now"
+  # 与 segments.yaml 各 segment 的 titles 做笛卡尔组合后逐条搜。
+  combine_with: "segments.yaml:<segment>.titles"
+
+# ---------------------------------------------------------------------------
+# 四、Reddit 帖型判定
+# 【出处：Phase 2 spec §四「标题或首层含 which tool / alternative / recommend / vs
+#         即工具求推荐，否则纯痛点求解法」——四个 marker 逐字照抄，不增不减】
+# ---------------------------------------------------------------------------
+reddit_post_type:
+  tool_recommendation_markers:
+    - "which tool"
+    - "alternative"
+    - "recommend"
+    - "vs"
+  scan_scope: "标题或首层评论"
+  default: "纯痛点求解法"
+  # Phase 3 之前两类都只入库不回帖。【出处：spec §一.1 逐字】
+  phase2_action: "只入库不回帖"
+
+# ---------------------------------------------------------------------------
+# 五、AI 引擎探测
+# ---------------------------------------------------------------------------
+probe:
+  # 【出处：Phase 0 核对清单 探测记录库 §3 引擎 select 三个选项逐字】
+  engines: ["ChatGPT", "Perplexity", "Gemini"]
+  engine_urls:
+    ChatGPT: "https://chatgpt.com/"
+    Perplexity: "https://www.perplexity.ai/"
+    Gemini: "https://gemini.google.com/app"
+
+  # 【出处：spec §四「两套问题各 5 条起步」】
+  questions_per_set: 5
+  # 【出处：Phase 0 核对清单 探测记录库 §4 问题集 select 两个选项逐字】
+  question_sets: ["任务式 pain feeler", "评估式 decision maker"]
+
+  # 引用判定。【出处：spec §四「回答正文出现品牌名即记引用」逐字】
+  citation_rule: "回答正文出现品牌名即记引用"
+  # 品牌名匹配串。【推演待校准】：spec 只说「品牌名」，没给具体串与大小写口径。
+  brand_names: ["Vivu"]
+  brand_match: "大小写不敏感，子串匹配；命中即勾选「Vivu 是否被引用」"
+
+  # 【出处：Phase 0 核对清单 探测记录库 §6 品类答案是否形成 select 三个选项逐字】
+  category_answer_levels: ["已形成", "雏形", "无"]
+  # 三档的分界【推演待校准】：Phase 0 只冻结了选项名，没定义什么叫「形成」。
+  category_answer_rule:
+    已形成: "回答直接给出一类工具的名单并给出选型建议"
+    雏形: "回答绕着说、给的是通用做法或零散工具，没有成型的品类名单"
+    无: "回答答非所问，或明确表示不知道这类工具"
+
+# ---------------------------------------------------------------------------
+# 六、SERP 扫描
+# ---------------------------------------------------------------------------
+serp:
+  # 【出处：spec §四「只扫 Query 库里月搜索量前 20 的词」】
+  top_n_by_volume: 20
+  # 【出处：spec §四「SerpAPI 免费层（每月 100 次）」】
+  monthly_quota: 100
+  provider: "serpapi"
+  endpoint: "https://serpapi.com/search.json"
+  params:
+    engine: "google"
+    num: 10
+    hl: "en"
+    gl: "us"
+  # 评测站判定域名表【推演待校准】：spec 只说「评测站页」，没给名单。
+  review_site_domains:
+    - "g2.com"
+    - "capterra.com"
+    - "trustradius.com"
+    - "softwareadvice.com"
+    - "getapp.com"
+    - "producthunt.com"
+    - "sourceforge.net"
+    - "alternativeto.net"
+    - "slant.co"
+
+# ---------------------------------------------------------------------------
+# 七、Query 库入库规则
+# ---------------------------------------------------------------------------
+query:
+  # 首批 query。【出处：spec §一.2 逐字三条，一字未改】
+  first_batch:
+    - "video search tool"
+    - "search inside video footage"
+    - "video asset management AI"
+
+  # 「加 segments.yaml 衍生词」的取法【推演待校准】：
+  #   spec 没说取哪一类。这里取 linkedin_keywords——它本身就是自然语言短语，
+  #   可以直接当 query 用；hiring_keywords 是职位名不是检索意图，故不取。
+  derive_from: "segments.yaml:<segment>.linkedin_keywords"
+
+  # 类型判定。【推演待校准】：Phase 0 只冻结了三个选项名，没给判定规则。
+  # 【出处：Phase 0 核对清单 Query 库 §2 类型 select 三个选项逐字】
+  type_markers:
+    品牌词: "命中 probe.brand_names 任一"
+    # 按整词匹配（脚本用 \b 边界），不是子串匹配。
+    # ⚠️ 2026-08-04 首次 dry-run 实测：原表里有裸的 "review"，把
+    #    "vod review workflow"（E 段痛点词）误判成评估式——review / compare 这类词
+    #    在视频行业本身就是干活的动词。已收窄为复数与固定搭配。
+    #    这类误判是本节【推演待校准】的典型样子，首轮入库后要人工抽查一遍类型列。
+    评估式:
+      - "best"
+      - "top"
+      - "alternative"
+      - "alternatives"
+      - "vs"
+      - "versus"
+      - "pricing"
+      - "reviews"
+      - "comparison"
+    default: "痛点级任务式"
+
+  # 面向角色判定。【推演待校准】。
+  # 【出处：Phase 0 核对清单 Query 库 §3 面向角色 select 两个选项逐字】
+  role_by_type:
+    痛点级任务式: "pain feeler"
+    评估式: "decision maker"
+    品牌词: "decision maker"
+
+  # 【出处：Phase 0 核对清单 Query 库 §5 数据来源 select 四个选项逐字】
+  data_source_values:
+    keyword_volume: "Keyword Planner"
+    serp_scan: "SERP 观察"
+    probe: "探测问题"
+  # 【出处：Phase 0 核对清单 Query 库 §6 状态 select 四个选项，新入库取「候选」】
+  initial_status: "候选"
+
+# ---------------------------------------------------------------------------
+# 八、Apollo
+# ---------------------------------------------------------------------------
+apollo:
+  base_url: "https://api.apollo.io/api/v1"
+  people_search_path: "/mixed_people/search"
+  auth_header: "x-api-key"
+  per_page: 25
+  # 每 segment 每轮最多取几家公司做配对。与 caps.per_segment_per_round 对齐：
+  # 一家公司最多出两个名字（pain feeler + decision maker），10 条上限 → 5 家。
+  # 【出处：caps.per_segment_per_round 推导】
+  max_companies_per_segment: 5
+  # 招聘公司反查清单。【出处：spec §四「另读 data/apollo_backfill.csv 对招聘公司做定向反查」】
+  backfill_csv: "data/apollo_backfill.csv"
+  # 单边降级的落字位置【推演待校准】：水箱冻结字段表里没有「缺失角色」这个字段，
+  # 只能借「下一步动作」这个 text 字段写。Phase 0 差异②同理——靠约定不靠约束。
+  single_side_note_field: "下一步动作"
+  single_side_note_template: "单边入箱，待补齐 {missing_role}"
+  # 邮件回流轮询不在本阶段。【出处：spec §一.2 逐字「sequence 在 J4 才建」】
+  email_reply_polling: false
+
+# ---------------------------------------------------------------------------
+# 九、扫描日志
+#
+# spec §四 定的结构是 {date, playbook, segment, hits, inboxed, skipped_dupe}，
+# 这是**一条记录**的结构；一天里会有多个 playbook × 多个 segment，所以文件是记录的集合。
+#
+# ⚠️ 关键兼容点：Phase 1 的 scripts/metrics.py:64 已经写死了它认的形态是
+#    {"by_segment": {"A": <扫描命中数>, ...}}，认不出就返回 null（信号命中率分母缺失）。
+#    所以文件同时给两样：records 逐条按 spec 结构，by_segment 是 records 里 hits 的
+#    按 segment 汇总，专供 metrics.py 取数。两者由 scripts/scan_log_append.py 保证一致，
+#    不需要、也不允许改 Phase 1 的任何一行。
+# ---------------------------------------------------------------------------
+scan_log:
+  path_template: "logs/scan_{date}.json"
+  record_fields: ["date", "playbook", "segment", "hits", "inboxed", "skipped_dupe"]
+  # metrics.py 汇总的是 hits（命中数），不是 inboxed（实际入箱数）。
+  # 理由：信号命中率的分母是「扫到多少」，不是「写进去多少」——上限截断和去重跳过
+  # 都不应该缩小分母。
+  by_segment_source_field: "hits"
+
+# ---------------------------------------------------------------------------
+# 十、停机条件（红线，四份 playbook 逐字共用）
+# 【出处：Phase 2 spec §二 硬约束 + §四「无论哪种形态，风控红线不变」】
+# ---------------------------------------------------------------------------
+halt:
+  triggers:
+    - "出现验证码（captcha / 人机验证 / security check）"
+    - "出现风控提示（unusual activity / temporarily restricted / 账号受限）"
+    - "被要求重新登录或二次验证"
+    - "页面结构与 playbook 描述不符，无法确认在读的是不是目标数据"
+  actions:
+    - "立即停止本次扫描，不重试"
+    - "向 Telegram group 上报（群 ID 见 .env 的 TELEGRAM_GROUP_ID）"
+    - "当周剩余扫描作废"
+  no_outbound_actions:
+    # 逐字保留，不得改写。【出处：spec §二「浏览器自动化只读」】
+    - "零私信"
+    - "零评论"
+    - "零点赞"
+    - "零连接请求"

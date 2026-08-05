@@ -213,6 +213,27 @@ class Notion:
         return self._request("PATCH", "/pages/{}".format(page_id),
                              {"archived": True})
 
+    # -- 以下两个方法是 Phase 2 追加，纯新增，未改动上面任何一行 --------------
+    # Phase 1 的 metrics.py / sla_check.py 只读不写，不受影响。
+    # 写库能力集中在这里而不是各脚本自己拼 HTTP，理由同 aeo_common 本身的存在理由：
+    # 两份实现必然漂移。
+
+    def create_page(self, data_source_id, properties):
+        """在指定 data source 下建一行。
+
+        parent 用 data_source_id 而不是 database_id：Notion API 2025-09-03 起
+        一个 database 可以挂多个 data source，写入必须指到具体的那一个。
+        （与 query_all 按 DS_ ID 取数是同一个口径。）
+        """
+        return self._request("POST", "/pages", {
+            "parent": {"type": "data_source_id", "data_source_id": data_source_id},
+            "properties": properties,
+        })
+
+    def update_page(self, page_id, properties):
+        return self._request("PATCH", "/pages/{}".format(page_id),
+                             {"properties": properties})
+
 
 # --------------------------------------------------------------------------
 # outbox
