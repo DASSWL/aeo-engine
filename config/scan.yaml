@@ -138,6 +138,19 @@ probe:
   brand_names: ["Vivu"]
   brand_match: "大小写不敏感，子串匹配；命中即勾选「Vivu 是否被引用」"
 
+  # 已知竞品观察名单。【出处：Shawn 2026-08-04 口头给出】
+  #
+  # ⚠️ 这不是「竞替名单」，更不构成名单收敛。
+  #    config/gates.yaml 的 competitor_list_converged 仍为 false，本文件不碰它
+  #    （那一行的注释：「禁止脚本自动翻转：收敛与否是判断，不是计算」）。
+  #    这里的作用只有一个：探测上报时，这两个名字若出现在「被引用竞品」里要单独点出来，
+  #    因为它们是我们**已知会被拿来比**的对象，出现频次的变化比陌生名字更值得看。
+  #    陌生名字照样要如实记进「被引用竞品」，不因为不在这张表里就漏掉。
+  known_competitors:
+    - "TwelveLabs"      # 官方写法是 Twelve Labs（两个词），匹配时两种都算
+    - "Twelve Labs"
+    - "ChatCut"
+
   # 【出处：Phase 0 核对清单 探测记录库 §6 品类答案是否形成 select 三个选项逐字】
   category_answer_levels: ["已形成", "雏形", "无"]
   # 三档的分界【推演待校准】：Phase 0 只冻结了选项名，没定义什么叫「形成」。
