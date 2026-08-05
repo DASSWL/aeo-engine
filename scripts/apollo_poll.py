@@ -160,6 +160,55 @@ def complete_pairs(session, a_cfg, api_key, seg_body, segment, people,
     }
 
 
+def enrich_rows(session, a_cfg, api_key, rows):
+    """用 Apollo 的 people/bulk_match 按 id 富化，补上全名与 linkedin_url。
+
+    api_search 只给打码预览（见 scan.yaml apollo.enrich 的注释）。这一步是把
+    「名 + 头衔 + 公司」变成「可触达的名字 + 来源链接」的唯一途径。
+
+    就地改写 rows 的 人名 与 来源链接，返回 (调用数, 统计)。
+    富化不到的行原样保留，由调用方按 require_source_link 决定丢不丢。
+    """
+    e = a_cfg["enrich"]
+    by_id = {r["apollo_person_id"]: r for r in rows if r.get("apollo_person_id")}
+    ids = list(by_id)
+    calls, matched = 0, 0
+
+    for i in range(0, len(ids), e["batch_size"]):
+        chunk = ids[i:i + e["batch_size"]]
+        resp = session.post(
+            a_cfg["base_url"] + e["path"],
+            json={"details": [{"id": pid} for pid in chunk]},
+            headers={a_cfg["auth_header"]: api_key, "Content-Type": "application/json",
+                     "accept": "application/json"},
+            timeout=60)
+        if resp.status_code >= 400:
+            raise RuntimeError("Apollo bulk_match HTTP {}：{}".format(
+                resp.status_code, resp.text[:300]))
+        calls += 1
+        body = resp.json() or {}
+        for m in (body.get("matches") or body.get("people") or []):
+            if not m:
+                continue
+            row = by_id.get(m.get("id"))
+            if not row:
+                continue
+            full = m.get("name") or " ".join(
+                x for x in [m.get("first_name"), m.get("last_name")] if x).strip()
+            if full:
+                row["人名"] = full
+            if m.get("linkedin_url"):
+                row["来源链接"] = m["linkedin_url"]
+            if not row.get("公司"):
+                row["公司"] = (m.get("organization") or {}).get("name") or ""
+            row["enriched"] = True
+            matched += 1
+
+    return calls, {"enrich_calls": calls, "enrich_requested": len(ids),
+                   "enrich_matched": matched,
+                   "enrich_credits_estimate": matched * e["credits_per_person"]}
+
+
 def person_record(raw, segment, role):
     org = raw.get("organization") or {}
     return {
@@ -298,6 +347,9 @@ def main():
                         help="每 segment 最多取几家公司，默认读 scan.yaml")
     parser.add_argument("--backfill", action="store_true",
                         help="只跑 data/apollo_backfill.csv 的招聘公司定向反查")
+    parser.add_argument("--no-enrich", dest="no_enrich", action="store_true",
+                        help="跳过富化（省 credits）。富化按人计费，纯看配对规划时用这个；"
+                             "注意跳过后拿不到全名与来源链接，配 --commit 会因缺去重键而全部丢弃")
     args = parser.parse_args()
     mode = sc.resolve_mode(args)
 
@@ -424,15 +476,49 @@ def main():
             for grp in groups:
                 all_groups.append({"entry": key, "segment": entry["segment"], "rows": grp})
 
+        # ---- 富化。必须排在去重之前：来源链接是富化之后才有的，
+        #      先去重等于拿一堆空 key 互相比对，什么都拦不住。----
+        enrich_stats = {}
+        if args.no_enrich:
+            enrich_stats = {"skipped": "--no-enrich：本次未富化，行内无全名与来源链接"}
+        elif a_cfg["enrich"]["enabled"]:
+            flat = [r for g in all_groups for r in g["rows"]]
+            ecalls, enrich_stats = enrich_rows(session, a_cfg, api_key, flat)
+            calls += ecalls
+
+        # ---- 丢弃富化后仍无来源链接的行（去重键缺失就不许进库）----
+        dropped_no_link = []
+        if a_cfg["enrich"]["require_source_link"]:
+            pruned = []
+            for grp in all_groups:
+                keep = [r for r in grp["rows"] if r.get("来源链接")]
+                for r in grp["rows"]:
+                    if not r.get("来源链接"):
+                        dropped_no_link.append({
+                            "人名": r["人名"], "公司": r["公司"], "title": r.get("title"),
+                            "segment": r["segment"], "角色标签": r["角色标签"],
+                            "reason": "富化后仍无 linkedin_url，缺去重键，不写库"})
+                if not keep:
+                    continue
+                # 配对被拆散：剩下那行降级为单边，并标注缺的是哪一侧
+                if len(grp["rows"]) == 2 and len(keep) == 1:
+                    r = keep[0]
+                    missing = ROLE_DM if r["角色标签"] == ROLE_PAIN else ROLE_PAIN
+                    r["下一步动作"] = a_cfg["single_side_note_template"].format(
+                        missing_role=missing)
+                pruned.append(dict(grp, rows=keep))
+            all_groups = pruned
+
         # 去重：按来源链接查水箱，已存在即跳过
         deduped, skipped_dupe = [], []
         for grp in all_groups:
             keep = []
             for row in grp["rows"]:
-                if row["来源链接"] and sc.norm_url(row["来源链接"]) in seen_urls:
+                key = sc.norm_url(row["来源链接"])
+                if not key or key in seen_urls:
                     skipped_dupe.append({"人名": row["人名"], "来源链接": row["来源链接"]})
                     continue
-                seen_urls.add(sc.norm_url(row["来源链接"]))
+                seen_urls.add(key)
                 keep.append(row)
             if keep:
                 deduped.append(dict(grp, rows=keep))
@@ -464,7 +550,9 @@ def main():
             "max_companies_per_segment": max_companies,
             "per_segment_row_cap": caps["per_segment_per_round"],
             "group_stats": stats,
+            "enrich": enrich_stats,
             "planned_rows": sum(len(g["rows"]) for g in deduped),
+            "dropped_no_source_link": dropped_no_link,
             "skipped_dupe": skipped_dupe,
             "groups": deduped,
             "written": written,
