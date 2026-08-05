@@ -760,3 +760,77 @@ update p-blank → {"月搜索量": {"number": 120.0}, "数据来源": {...Keywo
 | AI 建议 | `query_candidates.py` | 等探测跑起来（Perplexity 已恢复，明日 09:00 见分晓） |
 | A1 扫描 | `scan_queries.py` | 等首轮周批扫；规则未经真实数据验证 |
 | 买家原话 | `buyer_quote_queries.py` | 已 approved，有 1 行真实原话 |
+
+---
+
+# Keyword Planner 首次实跑（2026-08-05）
+
+执行方式：Claude in Chrome（Browser 2）驱动 Google Ads 账号 `215-156-2899`。
+产物：一个 draft plan「Plan from Aug 6, 2026」（无投放、无花费、未建 campaign）。
+
+## 结论一：那 10 条 query 在 Google 上没有可测量的搜索量
+
+`Get search volume and forecasts` 跑了 9 条（第 10 条被拒，见结论三），
+`Avg. monthly searches` **全部是 `—`**。
+
+这不是账号问题——同一账号在 `Discover new keywords` 里拿得到数：
+
+| 词 | 界面显示 |
+|---|---|
+| video search | `1K – 10K` |
+| reverse video search | `10K – 100K` |
+| video search engine | `1K – 10K` |
+| video asset management software | `100 – 1K` |
+| video asset management | `10 – 100` |
+
+**账号能取数，所以 `—` 是真的没量。**
+
+这条结论直接打到 J1 第 5 类「痛点级 query 的 AEO 内容」的选题依据上：
+Query 库里那 10 条是我们自己写的问题，而**市场的词不是我们的词**。
+`reverse video search` 有 10K–100K 的量，我们一条都没想到过它。
+
+## 结论二：⛔ 导出的 CSV 会伪造精度
+
+**界面显示区间，导出的 CSV 把区间换成桶中值整数。**
+
+37 条词里只出现过 4 个不同的搜索量取值：`50` / `500` / `5000` / `50000`——
+全是 5×10^n。那不是测量值，是桶标签：
+
+```
+10 – 100    → 50          100 – 1K   → 500
+1K – 10K    → 5000        10K – 100K → 50000
+```
+
+`keyword_volume.py:parse_volume` 看到 `5000` 会当成精确值写进 `月搜索量`。
+于是 Phase 0 那条「区间不折算成任何具体数字，折算等于伪造精度」的禁令，
+**在 Google 的导出层就已经被绕过去了**，而我们的脚本会忠实地把假精度记成基准。
+dry-run 实测：37 条全部 `to_create`，`月搜索量` 全是桶中值。
+
+处置：文件扩展名改成 `.csv.hold`，`keyword_volume.py` 的 glob 吃不到它，
+并在 `data/kw/READ_ME_FIRST.txt` 留了原因。**本次未 `--commit`，Query 库一行未加。**
+
+### 需要拍板：区间怎么进库
+
+`月搜索量` 是 number 字段，Phase 0 口径是「未知留空」。但区间既不是未知也不是精确值。
+三个选项，代价都不一样：
+
+| 选项 | 得到什么 | 失去什么 |
+|---|---|---|
+| 按现状导入（写桶中值） | 37 条词带数字进库，能排序 | 基准掺假。`5000` 看起来像测量值，实际误差一个数量级 |
+| 把桶中值还原成区间串再导 | 37 条词进库，`月搜索量` 留空，出处诚实 | 排不了序——所有词看起来都一样，等于没有量 |
+| 先不导，等有投放后拿精确值 | 基准干净 | Query 库继续停在 10 条零证据行 |
+
+我的意见：这一条和 SERP 那条 schema 缺口是同一类问题——
+**`月搜索量` 这个 number 字段装不下「量级已知、精度未知」这种状态。**
+但改 schema 要解冻 Phase 0，所以它是你的决定，不是我的。
+
+## 结论三：Keyword Planner 量不了长尾对话式 query
+
+`how to search a video library by what was said in it` 被拒：
+`Keywords can't contain more than 10 words`（我们那条 12 词）。
+
+**没有改写它**——改写就不是原来那个 query 了。
+
+这是补量链的结构性上限：J1 第 5 类瞄准的正是这种长尾对话式问法
+（`how to find a clip in hours of footage` 一类），而 KP 结构上就验不了超过 10 词的。
+换句话说，**这条链能验的和我们最想写的，不是同一批词。**
