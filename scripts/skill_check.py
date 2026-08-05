@@ -37,6 +37,10 @@ SCRIPT = "skill_check"
 EXIT_SKILL_MISSING = 3
 
 
+# 待补标记。skill 正文里出现它，说明该 skill 有已知缺口、处于降级状态。
+INCOMPLETE_MARKER = "【待真人补】"
+
+
 def resolve_skill(name, entry):
     """按 search_paths 找第一个含 SKILL.md 的目录。返回 (path or None, tried)。"""
     tried = []
@@ -48,6 +52,32 @@ def resolve_skill(name, entry):
         if exists:
             return expanded, tried
     return None, tried
+
+
+def scan_gaps(path):
+    """数 SKILL.md 里的【待真人补】并摘出所在小节标题。
+
+    为什么需要：文件存在 ≠ 内容完整。vivu-linkedin-rewriter 重建版里
+    banned phrases 与 hook 模板两项原词表已丢失、标了待补，
+    但只看 available=true 会以为它完全可用，产线就会在不知情的情况下按降级跑。
+    这与 ai-writing-guideline 读不到实时规则时只在输出第一行说一句是同一类隐患：
+    降级本身不可怕，降级没被看见才可怕。
+    """
+    if not path:
+        return []
+    md = os.path.join(path, "SKILL.md")
+    if not os.path.isfile(md):
+        return []
+    gaps, section = [], "(文件开头)"
+    with open(md, encoding="utf-8") as fh:
+        for line in fh:
+            stripped = line.strip()
+            if stripped.startswith("#"):
+                section = stripped.lstrip("#").strip()
+            if INCOMPLETE_MARKER in stripped:
+                gaps.append({"section": section,
+                             "line": stripped[:120]})
+    return gaps
 
 
 def stage(repo, stage_dir, resolved):
@@ -88,11 +118,17 @@ def main():
     registry = skills_cfg["registry"]
     report, resolved, missing_required = {}, {}, []
 
+    degraded = []
     for name, entry in registry.items():
         path, tried = resolve_skill(name, entry)
         resolved[name] = path
+        gaps = scan_gaps(path)
         report[name] = {
             "available": bool(path),
+            # available 说的是「文件在」，complete 说的是「内容没缺口」。
+            # 两个都要看——只看前者会把降级状态读成完全可用。
+            "complete": bool(path) and not gaps,
+            "known_gaps": gaps,
             "resolved_path": path,
             "required": bool(entry.get("required")),
             "used_by": entry.get("used_by") or [],
@@ -100,6 +136,8 @@ def main():
         }
         if not path and entry.get("required"):
             missing_required.append(name)
+        elif gaps:
+            degraded.append(name)
 
     result = {
         "script": SCRIPT,
@@ -110,6 +148,13 @@ def main():
         "blocked_steps": sorted({
             step
             for name in missing_required
+            for step in (registry[name].get("used_by") or [])
+        }),
+        # 降级不等于阻断：skill 在，但有已知缺口，产线可以跑但必须在产出里明说降了什么。
+        "degraded_skills": degraded,
+        "degraded_steps": sorted({
+            step
+            for name in degraded
             for step in (registry[name].get("used_by") or [])
         }),
     }
