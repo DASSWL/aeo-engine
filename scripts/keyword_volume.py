@@ -270,6 +270,9 @@ def main():
             }
             if key in existing:
                 item["existing_page_id"] = existing[key]["id"]
+                # 已有行的来源标注要留着，不能被本脚本盖掉。见下方 commit 分支的注释。
+                item["existing_数据来源"] = ac.select_name(
+                    existing[key].get("properties", {}), "数据来源")
                 if row["月搜索量"] is None:
                     skipped.append(dict(item, skip_reason="已在 Query 库且本次无精确搜索量，不覆盖"))
                 else:
@@ -295,12 +298,23 @@ def main():
                 written.append({"action": "create", "query 文本": item["query 文本"],
                                 "page_id": page["id"]})
             for item in to_update:
-                notion.update_page(item["existing_page_id"], {
-                    "月搜索量": sc.p_number(item["月搜索量"]),
-                    "数据来源": sc.p_select(item["数据来源"]),
-                })
+                # 本脚本补的是**搜索量**，不是来源。已有来源标注一律不覆盖，
+                # 只在该字段为空时才写——与 serp_scan.py:184 同一条口径。
+                #
+                # 为什么这一条重要（2026-08-05 Shawn 拍板修，此前是无条件覆写）：
+                # Query 库的 `数据来源` 当天 additive 解冻加了「AI 建议」与「A1 扫描」，
+                # 用来区分「模型说会有人搜的词」「真人发帖里抓的词」「买家亲口说的话」。
+                # 无条件覆写会在补量的那一瞬把这三者全抹成「Keyword Planner」——
+                # 解冻换来的出处区分当场归零，而且是**静默**归零：
+                # 补量成功了，数字是对的，出处没了，没有任何报警会响。
+                props = {"月搜索量": sc.p_number(item["月搜索量"])}
+                if not item.get("existing_数据来源"):
+                    props["数据来源"] = sc.p_select(item["数据来源"])
+                notion.update_page(item["existing_page_id"], props)
                 written.append({"action": "update", "query 文本": item["query 文本"],
-                                "page_id": item["existing_page_id"]})
+                                "page_id": item["existing_page_id"],
+                                "数据来源": item.get("existing_数据来源") or item["数据来源"],
+                                "数据来源_是否本次写入": "数据来源" in props})
 
         sc.emit(SCRIPT, {
             "script": SCRIPT,
@@ -328,6 +342,9 @@ def main():
                 "月搜索量为 null 表示 CSV 给的是区间或空值。Phase 0 Query 库 §4 口径是"
                 "「未知留空」，不折算区间中值——折算等于伪造精度。",
                 "类型 / 面向角色 的判定规则来自 config/scan.yaml query 节，整节【推演待校准】。",
+                "更新已有行时只补「月搜索量」；「数据来源」仅在为空时才写，不覆盖已有标注"
+                "（2026-08-05 Shawn 拍板改。此前无条件覆写，会把「AI 建议」「A1 扫描」"
+                "「买家原话」三种出处静默抹成「Keyword Planner」）。",
             ],
         }, th)
         return sc.EXIT_OK

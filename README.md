@@ -692,3 +692,71 @@ Reddit 那批的 `A1 扫描`，会在补量的一瞬间被抹掉——
 | **AI 建议** | 候选池空——追问要等探测跑起来，而**探测卡在 Perplexity 未登录** |
 | **A1 扫描** | 取值已解冻可用，**脚本还没建**；水箱 `来源 = A1 扫描` 也是 0 行 |
 | 买家原话 | 脚本已建；2026-08-05 起有 1 行真实原话，实测抽出 1 条弱候选 |
+
+---
+
+# 2026-08-05 收尾：四条拍板执行 + Reddit 链建成
+
+| # | 事项 | 结果 |
+|---|---|---|
+| 1 | Perplexity 登录 | Shawn 已恢复。下一次 09:00 探测跑通即验证（今日因未登录整体停机） |
+| 2 | `keyword_volume` 覆写 `数据来源` | **已修**（下方） |
+| 3 | 两份规则文件审核 | `buyer_quotes.yaml` / `query_candidates.yaml` → `approved` |
+| 5 | Reddit 原话 → query | **已建** `scripts/scan_queries.py` |
+
+## 覆写已修（唯一一次改动 Phase 2 脚本）
+
+`keyword_volume.py` 的 update 分支原本无条件同时写 `月搜索量` **和** `数据来源`。
+现改为**只在 `数据来源` 为空时才写**，与 `serp_scan.py:184` 同一条口径。
+
+为什么这一条值得破例动 Phase 2 的脚本：它抹掉的是出处，而且是**静默**抹掉——
+补量成功了、数字是对的、出处没了，没有任何报警会响。
+这与 Phase 3 §七① 那次「草稿数字是对的，东西没了」是同一类失败。
+
+wire 级实测（拦截 `update_page`，看真正发出去的 body）：
+
+```
+update p-ai    → {"月搜索量": {"number": 700.0}}                                  ← 来源=AI 建议，未下发 数据来源
+update p-blank → {"月搜索量": {"number": 120.0}, "数据来源": {...Keyword Planner}} ← 来源为空，补写
+```
+
+`kp_seeds.py` 的 `overwrite_risk` 一节保留，改作**回归哨兵**：
+补完量再跑一次，若那些行的来源变回「Keyword Planner」，说明这处改动被回退了。
+
+## Reddit / LinkedIn 原话 → Query 库（`数据来源 = A1 扫描`）
+
+`scripts/scan_queries.py` + `config/scan_queries.yaml`。
+
+这是六条链里**出处最硬**的一条：水箱的 `来源链接` 是帖子永久链接，一个公网 URL，
+谁都能点开核对这句话是不是真有人说过。而 `scan_reddit_weekly.md` §5 早就写死了
+「`信号原文` = 【帖型：X】+ 原文照抄，不改写不翻译不概括」——
+**料一直在进，过去只是没有管子通到 Query 库**，因为 `数据来源` 没有对应取值。
+
+设计要点：
+
+- **只取 `来源 = A1 扫描` 的行。** Apollo 行不取——它们的 `信号原文` 自己写着
+  「非原文引用：本行来源是名单条件而非本人发言」，当买家语言写进去就是掺假。
+- **标题优先。** Reddit 的标题就是那句问话，正文多是背景交代。标题另给
+  `title_max_words: 22`——真实标题常 15–20 词，用正文的 16 词上限会把最有价值的一句判掉。
+- **`来源链接` 为空的行直接拒绝**，理由就一条：无出处不写。
+- 「工具求推荐」帖带出的 alternative / best / vs 会被判成评估式 / decision maker，
+  这是对的——那确实是 decision maker 在评估阶段的搜法。
+
+离线自测（内存构造，不碰 Notion、不落文件）：Apollo 行正确跳过、
+无链接行按「无出处不写」拒绝、标题与正文各抽出候选、逐字校验全部为原样子串。
+
+⚠️ **`meta.status` 仍是 `draft`，`--commit` 会拒绝。** 理由不是流程而是事实：
+水箱 `来源 = A1 扫描` 当前 **0 行**，Reddit 周批扫一轮都没跑过，
+所以这份 config 里关于「`信号原文` 长什么样」的假设**一条都没在真实数据上验证过**。
+首轮周批扫出料 → `--review` 出清单 → 真人对着真实行复核规则 → 再改 `approved`。
+
+## 六条链现状
+
+| 数据来源 | 脚本 | 还差什么 |
+|---|---|---|
+| 探测问题 | `probe_questions_sync.py` | config 10 条已全入库；要新词得真人先加问题 |
+| Keyword Planner | `keyword_volume.py` | Google Ads 五凭据 + `data/kw/` 空 |
+| SERP 观察 | `serp_scan.py` | schema 装不下 + 缺 key + 10 行来源全非空 |
+| AI 建议 | `query_candidates.py` | 等探测跑起来（Perplexity 已恢复，明日 09:00 见分晓） |
+| A1 扫描 | `scan_queries.py` | 等首轮周批扫；规则未经真实数据验证 |
+| 买家原话 | `buyer_quote_queries.py` | 已 approved，有 1 行真实原话 |

@@ -18,11 +18,11 @@
 
 meta:
   version: "0.1"
-  status: draft            # 整份【推演待校准】：追问措辞与两个上限都没有实测支撑
+  status: approved            # 整份【推演待校准】：追问措辞与两个上限都没有实测支撑
   drafted_at: "2026-08-05"
   drafted_for: "Query 库进料链：AI 建议路径（Shawn 2026-08-05 指定新增）"
-  reviewed_by: null
-  reviewed_at: null
+  reviewed_by: Shawn
+  reviewed_at: "2026-08-05"
 
 data_source_value: "AI 建议"     # Phase 0 冻结取值，逐字
 

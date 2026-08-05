@@ -1,0 +1,105 @@
+# AEO Engine · A1 扫描原话 → Query 库 的抽取规则
+#
+# 这条链干什么：把 Reddit 存量提问帖（以及 LinkedIn 抱怨帖）的**原文**变成 query 候选。
+#
+# 为什么它是六条链里最该建的一条：
+#   Reddit 存量提问帖的**标题本身就是一个活人打出来的问句**。
+#   不是我们假设的（探测问题）、不是模型联想的（AI 建议）、不是工具关联的（KP 扩展建议）——
+#   是一个真人在真的想解决这个问题时，真的敲出来的那句话。
+#   而 scan_reddit_weekly.md §5 已经写死「`信号原文` = 【帖型：X】+ 原文照抄，
+#   不改写、不翻译、不概括」——料一直在进，只是过去没有管子通到 Query 库。
+#
+# 出处比买家原话那条链更硬：水箱的 `来源链接` 是帖子永久链接，一个公网 URL，
+# 任何人都能点开核对这句话是不是真有人说过。
+#
+# ⚠️ 本文件整份【推演待校准】，而且比另外两份更没底：
+#    水箱当前 `来源 = A1 扫描` 的行是 **0 条**，Reddit 周批扫一轮都还没跑过。
+#    所以下面关于「`信号原文` 长什么样」的假设**一条都没有在真实数据上验证过**。
+#    首轮周批扫出料之后，必须回来对着真实行复核这些规则。
+
+meta:
+  version: "0.1"
+  status: draft            # draft | approved —— approved 之前 --commit 拒绝写库
+  drafted_at: "2026-08-05"
+  drafted_for: "Query 库进料链：A1 扫描路径（Shawn 2026-08-05 指定新增）"
+  reviewed_by: null
+  reviewed_at: null
+  unverified: "水箱 `来源 = A1 扫描` 当前 0 行，本文件全部规则未经真实数据验证"
+
+data_source_value: "A1 扫描"     # Phase 0 字段表 2026-08-05 additive 解冻加的取值
+
+extract:
+  # 逐字保留，与买家原话链同一条硬约束：写进 Query 库的必须是原文里原样出现过的一段。
+  verbatim: true
+
+  # 帖型前缀。scan_reddit_weekly.md §4 定的格式是 `【帖型：工具求推荐】<原文照抄>`。
+  # 剥掉它并记下帖型——它不是发帖人说的话，是我们加的标注。
+  post_type_prefix_pattern: '^【帖型：([^】]*)】'
+
+  # 标题优先：Reddit 的 `信号原文` 第一行通常就是帖子标题，而标题就是那句问话。
+  # 正文里的句子价值低得多（多是背景交代与吐槽）。
+  title_first: true
+  # 标题允许比正文子句长——真实的 Reddit 标题常有 15–20 个词，
+  # 用正文的 max_words 去卡会把最有价值的那一句判掉。
+  title_max_words: 22
+
+  clause_separators: ["\n", ". ", "? ", "! ", "; ", " / ", "。", "？", "！", "；"]
+  min_words: 3
+  max_words: 16
+
+  # 检索意图 marker。与 buyer_quotes.yaml 同一套概念，但这里多几条
+  # Reddit 提问帖的典型开头。【推演待校准】。
+  intent_markers:
+    - find
+    - finding
+    - search
+    - searching
+    - look for
+    - looking for
+    - locate
+    - dig through
+    - digging through
+    - go through
+    - scrub through
+    - how do
+    - how to
+    - how can
+    - is there a way
+    - is there any
+    - anyone know
+    - any way to
+    - best way
+    - recommend
+    - recommendations
+    - alternative
+    - we need
+    - i need
+    - trying to
+
+  # 命中即整条丢弃。
+  exclude_markers:
+    - vivu
+    # 版务/元讨论，不是在找解决办法
+    - "read the rules"
+    - "removed by moderator"
+    - "deleted"
+    - "this post"
+    - "my last post"
+
+caps:
+  # 一轮周批扫可能带回几十行，每行又切出多条子句。
+  # 同 AI 建议链的理由：不设闸，Query 库会被一条链灌满。
+  # 被截下的不静默丢弃，留在运行日志里并点名。
+  max_per_run: 25
+  # 单条水箱行最多贡献几条——防止一个话痨帖子刷屏。
+  max_per_row: 3
+
+notes:
+  - "本链零成本：只读水箱与 Query 库，不调任何计费 API，不做任何对外请求。"
+  - "只取 `来源 = A1 扫描` 的行。Apollo 与手动录入的行不取——
+     Apollo 行的 `信号原文` 是名单条件（它自己写着「非原文引用」），不是任何人说过的话。"
+  - "帖型「工具求推荐」的帖子会带出 alternative / vs / best 这类词，
+     它们会被判成「评估式 / decision maker」，这是对的：
+     那确实是 decision maker 在评估阶段的搜法。"
+  - "出处（来源链接、水箱行 id、帖型）只落 logs 与审核清单——
+     Query 库 7 个冻结字段装不下，与另外两条链撞的是同一堵墙。"

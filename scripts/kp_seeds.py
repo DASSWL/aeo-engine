@@ -18,14 +18,14 @@ Shawn 2026-08-05 指定新增的两条进料路径之二（路径 2：AI 建议�
   2. 导出 CSV 放 data/kw/
   3. 跑 keyword_volume.py --commit —— 它会认出这些行已存在，走 to_update 补上月搜索量
 
-⚠️ **第 3 步现在有一个会造成静默数据损失的问题，KP 环节上线前必须先处置：**
-   `keyword_volume.py:298-301` 的 update 分支同时写 `月搜索量` **和** `数据来源`，
-   把后者覆写成「Keyword Planner」。于是 AI 追问那批行刚标上的「AI 建议」、
-   Reddit 那批的「A1 扫描」，会在补量的一瞬间被抹掉——
-   2026-08-05 解冻 Phase 0 字段表换来的出处区分，当场归零。
-   本脚本每次运行都会点名统计有多少行处在这个风险里（见输出的 `overwrite_risk`）。
-   改法是一行（照 serp_scan 的做法，只在 `数据来源` 为空时才写），
-   但那要动 Phase 2 的脚本，是真人的决定。
+✅ 第 3 步曾有一个会造成静默数据损失的问题，2026-08-05 经 Shawn 拍板已修：
+   `keyword_volume.py` 的 update 分支原本同时写 `月搜索量` **和** `数据来源`，
+   把后者覆写成「Keyword Planner」——AI 追问那批刚标上的「AI 建议」、
+   Reddit 那批的「A1 扫描」，会在补量的一瞬间被抹掉，
+   且是**静默**抹掉：补量成功了，数字是对的，出处没了，没有任何报警会响。
+   现已改成只在 `数据来源` 为空时才写（与 serp_scan.py:184 同一条口径），
+   wire 级实测确认来源非空的行只下发 `月搜索量`。
+   本脚本仍逐次统计涉及行数（输出的 `overwrite_risk`），当作回归哨兵。
 
 只读、零成本、不写 Notion、不调任何计费 API。
 
@@ -117,12 +117,14 @@ def main():
             "overwrite_risk": {
                 "行数": len(at_risk),
                 "涉及来源": dict(Counter(m["数据来源"] for m in at_risk)),
-                "问题": "keyword_volume.py:298-301 的 update 分支会把 `数据来源` "
+                "问题（已修）": "keyword_volume.py 的 update 分支曾会把 `数据来源` "
                         "覆写成「Keyword Planner」，抹掉这些行现有的来源标注",
                 "后果": "2026-08-05 解冻 Phase 0 加的「AI 建议」「A1 扫描」两个取值失效，"
                         "事后再也分不清哪条词是模型给的、哪条是真人发帖里抓的",
                 "改法": "照 serp_scan.py:184 的做法，只在 `数据来源` 为空时才写",
-                "待拍板": "改它要动 Phase 2 的脚本，是真人的决定。KP 环节上线前必须先定",
+                "状态": "✅ 2026-08-05 已修（Shawn 拍板）。本项保留为回归哨兵："
+                        "若哪天这些行的 `数据来源` 又变成「Keyword Planner」，"
+                        "说明那处改动被回退了",
             },
             "next_steps": [
                 "python3 scripts/kp_seeds.py --paste  → 贴进 Google Keyword Planner",
@@ -143,10 +145,11 @@ def main():
                  len(missing_creds)),
              ""]
         if at_risk:
-            L += ["⚠️ **{} 行有来源被覆写的风险**（{}）。".format(
+            L += ["🛡 **{} 行带着非 KP 的来源标注**（{}）——补量后这些标注应当原样保留。".format(
                       len(at_risk), dict(Counter(m["数据来源"] for m in at_risk))),
-                  "`keyword_volume.py` 补量时会把 `数据来源` 覆写成「Keyword Planner」，",
-                  "抹掉刚解冻加进来的出处区分。**KP 环节上线前必须先定这一条。**", ""]
+                  "覆写问题已于 2026-08-05 修掉（`keyword_volume` 只在 `数据来源` 为空时才写）。",
+                  "**这一行是回归哨兵**：下次补完量再跑本脚本，若这些行变成了",
+                  "「Keyword Planner」，说明那处改动被回退了。", ""]
         print("\n".join(L), file=sys.stderr)
         return sc.EXIT_OK
 

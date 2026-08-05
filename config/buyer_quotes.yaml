@@ -11,16 +11,17 @@
 #   本文件整份是【推演待校准】——marker 词表没有任何实测支撑，
 #   塞进已审过的文件会让「审过」失去意义。同 Phase 2 §六 的处置。
 #
-# ⚠️ meta.status 现在是 draft。脚本 --commit 会因此拒绝写库。
-#    真人审过词表、确认它没把不该进的句子放进来之后，改成 approved 才能写。
+# meta.status 已于 2026-08-05 由 Shawn 审核通过转 approved。
+#    词表本身仍是【推演待校准】：它只在 Marvin (HeyMarvin) 那一行上实测过，
+#    产出 1 条弱候选。样本 n=1，不要把它当成校准过了。
 
 meta:
   version: "0.1"
-  status: draft            # draft | approved —— approved 之前 --commit 拒绝执行
+  status: approved            # draft | approved —— approved 之前 --commit 拒绝执行
   drafted_at: "2026-08-05"
   drafted_for: "Query 库进料链重建：买家原话链"
-  reviewed_by: null
-  reviewed_at: null
+  reviewed_by: Shawn
+  reviewed_at: "2026-08-05"
 
 extract:
   # 逐字保留是硬约束：抽出来的 query 文本必须是买家原话里**原样出现过的一段**，

@@ -120,16 +120,17 @@ CHAINS = [
         # 解冻加的第二个取值。Reddit / LinkedIn 扫描已经在逐字采集真实提问，
         # 但把它们变成 query 的脚本还没建——这是当前唯一「有值无链」的一条。
         "数据来源": "A1 扫描",
-        "writer": None,
-        "creates_rows": None,
-        "updates_rows": None,
+        "writer": "scripts/scan_queries.py",
+        "creates_rows": True,
+        "updates_rows": False,
         "input_kind": "pipeline",
         "input_desc": "水箱里 `来源 = A1 扫描` 的行的「信号原文」（Reddit 存量提问帖等）",
         "credentials": [],
-        "kind": "真·发现（未建）",
+        "kind": "真·发现",
         "kind_why": "Reddit 存量提问帖的标题就是活人打出来的问句，"
                     "而 scan_reddit_weekly.md 已经写死「原文照抄、不改写不翻译不概括」。"
-                    "这是全系统第二个真实语言来源，取值已解冻可用，脚本还没建。",
+                    "出处是帖子永久链接——一个公网 URL，谁都能点开核对。"
+                    "六条链里出处最硬的一条。",
     },
     {
         "数据来源": "买家原话",
