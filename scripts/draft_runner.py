@@ -348,11 +348,35 @@ def parse_drafts(text):
     return out
 
 
-def render_message(item, body, cfg):
-    """spec §J4 补充的 Telegram 模板，字段顺序逐条照抄。"""
+def contact_link(url):
+    """收件人主页链接，给 Telegram 自动识别成可点的链接。
+
+    LinkedIn 的 URL 在 Apollo 富化结果里是 http://，升成 https 再发——
+    http 链接在部分客户端会被拦一道确认，多一次点击。
+    """
+    u = (url or "").strip()
+    if not u:
+        return None, None
+    if u.startswith("http://"):
+        u = "https://" + u[len("http://"):]
+    label = "LinkedIn" if "linkedin.com" in u.lower() else "来源链接"
+    return label, u
+
+
+def render_messages(item, body, cfg):
+    """一条草稿 → 三条 Telegram 消息。
+
+    返回 [(part_id, text), ...]，顺序即发送顺序。
+
+    第 2、3 条**整条只有可粘贴的内容**，一个标签都不加：Telegram 复制是整条一起复制，
+    加了标签就得手动圈选，圈歪了会把「收件人：」粘进 LinkedIn 私信框。
+    所有上下文与链接集中在第 1 条。
+    """
     countdown = ("已逾期 {}h".format(abs(item["remaining_hours"]))
                  if item["overdue"] else "剩余 {}h".format(item["remaining_hours"]))
-    lines = [
+    label, url = contact_link(item.get("来源链接"))
+
+    summary = [
         "📮 AEO · J4 触达草稿",
         "",
         "收件人：{}".format(item["人名"] or "(无名)"),
@@ -361,23 +385,29 @@ def render_message(item, body, cfg):
         "渠道：{}".format(item["channel_label"]),
         "到期倒计时：{}".format(countdown),
         "切入角：{}".format(item["angle_label"]),
-        "",
-        "—— 草稿正文（可直接复制）——",
-        "",
-        body,
-        "",
-        "—— 以上 ——",
-        "",
-        "水箱行 ID：{}".format(item["id"]),
+    ]
+    if url:
+        summary += ["", "{}：{}".format(label, url)]
+    else:
+        summary += ["", "⚠️ 本行没有来源链接，收件人主页未知，需手动找人"]
+    summary += [
         "水箱行：{}".format(item["url"]),
         "",
-        "发出后请回复：sent {}".format(item["id"]),
+        "↓ 下一条是可直接复制的草稿正文，再下一条是发出后回的回执",
     ]
-    text = "\n".join(lines)
+
     cap = cfg["telegram"]["max_chars_per_message"]
-    if len(text) > cap:
-        text = text[:cap - 40] + "\n\n…（超长已截断，请看 outbox 原文）"
-    return text
+    parts = [("summary", "\n".join(summary)),
+             ("body", body.strip()),
+             ("receipt", "sent {}".format(item["id"]))]
+
+    out = []
+    for pid, text in parts:
+        if len(text) > cap:
+            # 正文超长时只截正文，摘要与回执本来就短。截断要看得见。
+            text = text[:cap - 40] + "\n\n…（超长已截断，请看 outbox 原文）"
+        out.append((pid, text))
+    return out
 
 
 # --------------------------------------------------------------------------
@@ -454,26 +484,32 @@ def main():
                     unparsed.append({"id": it["id"], "人名": it["人名"],
                                      "reason": "claude 输出里没有这一条的 DRAFT 包"})
                     continue
-                msg = render_message(it, body, cfg)
+                # 一条草稿 → 三个文件 → sales agent 发三条消息。
+                #
                 # 文件名必须用**完整** id，不能截断。
                 # 2026-08-05 首次自动运行踩到：原实现取 id[:8]，而同一批写入的
                 # Notion page ID 前 8 位完全相同（ID 按时间有序，那天 50 行全是
                 # 3b3059d9 开头）。10 条草稿写成同一个文件互相覆盖，只剩最后一条，
                 # 群里当天只收到 1 条，另外 9 条静默消失——脚本还报「装配 10 条」。
-                fname = "j4_draft_{}_{}.md".format(
-                    now.strftime("%Y-%m-%d"), it["id"].replace("-", ""))
-                if fname in seen_files:
-                    # 防线：文件名撞车宁可整体失败，也不要再静默覆盖一次。
-                    raise RuntimeError(
-                        "草稿文件名冲突：{} 同时来自水箱行 {} 与 {}。"
-                        "覆盖会让其中一条草稿静默消失。".format(
-                            fname, seen_files[fname], it["id"]))
-                seen_files[fname] = it["id"]
+                #
+                # 分片编号 1/2/3 放在文件名末尾：shell glob 按字典序展开，
+                # 同一条草稿的三片会紧挨着且保持 摘要→正文→回执 的顺序。
+                for idx, (pid, text) in enumerate(render_messages(it, body, cfg), 1):
+                    fname = "j4_draft_{}_{}_{}_{}.md".format(
+                        now.strftime("%Y-%m-%d"), it["id"].replace("-", ""), idx, pid)
+                    if fname in seen_files:
+                        # 防线：文件名撞车宁可整体失败，也不要再静默覆盖一次。
+                        raise RuntimeError(
+                            "草稿文件名冲突：{} 同时来自水箱行 {} 与 {}。"
+                            "覆盖会让其中一条草稿静默消失。".format(
+                                fname, seen_files[fname], it["id"]))
+                    seen_files[fname] = it["id"]
+                    if sc.resolve_mode(args) == "commit":
+                        ac.write_outbox(fname, text)
+                    written.append({"id": it["id"], "人名": it["人名"],
+                                    "part": pid, "file": fname, "chars": len(text)})
                 if sc.resolve_mode(args) == "commit":
-                    ac.write_outbox(fname, msg)
                     state[it["id"]] = now.isoformat()
-                written.append({"id": it["id"], "人名": it["人名"], "file": fname,
-                                "chars": len(msg)})
             if sc.resolve_mode(args) == "commit":
                 save_cooldown(state)
 
@@ -533,14 +569,21 @@ def main():
             "skipped": skipped,
             "deferred": [{"id": o["id"], "人名": o["人名"]} for o in overflow],
         }
-        path = sc.emit(SCRIPT + "_plan", result, th)
-
-        # emit 落的是 <script>_<date>.json，assemble 按固定名找，这里对齐一次
-        plan_path = os.path.join(
-            ac.LOGS_DIR, "{}_plan_{}.json".format(SCRIPT, now.strftime("%Y-%m-%d")))
-        if os.path.abspath(path) != os.path.abspath(plan_path):
+        # 权威 plan 文件**只在真实产线跑（带 --emit-prompt）时**写。
+        #
+        # 2026-08-05 踩到：临时跑一次 `python3 scripts/draft_runner.py` 看队列，
+        # 就把当天的权威 plan 覆盖成了另一批人（前一批进了冷却，队列自然换人），
+        # 于是随后的 assemble 拿新 plan 去配旧 claude 输出，10 条全部「未解析」。
+        # 诊断性 dry-run 不该有能力破坏当天的产线状态。
+        if args.emit_prompt:
+            plan_path = os.path.join(
+                ac.LOGS_DIR, "{}_plan_{}.json".format(SCRIPT, now.strftime("%Y-%m-%d")))
             with open(plan_path, "w", encoding="utf-8") as fh:
                 json.dump(result, fh, ensure_ascii=False, indent=2)
+            sc.emit(SCRIPT + "_plan", result, th)
+        else:
+            # 只打到 stdout，不落权威文件
+            print(json.dumps(result, ensure_ascii=False, indent=2))
 
         if args.emit_prompt:
             prompt = build_prompt(drafts, cfg, segments_cfg, env, skill_report)
