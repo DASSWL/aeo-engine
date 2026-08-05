@@ -13,3 +13,6 @@ __pycache__/
 
 # macOS
 .DS_Store
+
+# Phase 3: skill 暂存目录（每次运行前由 skill_check.py --stage 重建，不入 git）
+.claude/skills/

@@ -1,0 +1,337 @@
+# J4 触达产线配置 —— AEO Engine Phase 3
+#
+# 依据：Build Spec · Phase 3「J4 Outreach（最先实现）」与「详细实现规格补充 · J4 补充」。
+# 纪律同 Phase 1/2：脚本内不出现任何业务数字或文案字面量，全部从这里读。
+#
+# 本文件与 config/scan.yaml 的分工：
+#   scan.yaml    —— A1 感知侧（怎么找到人）
+#   outreach.yaml —— J4 触达侧（找到之后对谁说什么、由谁发）
+# 两者都引用 thresholds.yaml 的 sla 节作为时限口径，不各自复制一份数字。
+
+meta:
+  phase: 3
+  job: J4
+  spec: "https://app.notion.com/p/3b2059d9693381e988a4f460945a6bc7"
+  # 【推演待校准】标记的项：spec 没写死、由执行者按 spec 意图补的，首轮实跑后回头校准。
+
+# ---------------------------------------------------------------------------
+# 零发送红线
+#
+# 这一节不是开关集合，是本产线存在的前提。三个值都为 true 才允许运行。
+# 任何一个被改成 false，draft_runner / apollo_sequence / reply_poll 都会拒绝执行
+# 并说明原因——不是静默降级。
+#
+# Why：Phase 3 是发信基础设施第一次进场。第一枪必须真人打。
+# ---------------------------------------------------------------------------
+zero_send:
+  # 草稿只推 Telegram 群，脚本永不直连任何收件人
+  drafts_to_group_only: true
+  # Apollo sequence 只建不启动，建成即 paused
+  sequence_created_paused: true
+  # 脚本不得调用任何「立即发送」类 API（Apollo send_now、邮件 SMTP 等）
+  never_call_send_apis: true
+
+# ---------------------------------------------------------------------------
+# skill 产线
+#
+# 「不许用自写 prompt 冒充 skill」：每个环节声明它依赖哪个 skill，
+# scripts/skill_check.py 按 search_paths 逐个解析 SKILL.md。
+#   解析到 → 运行时把真 skill 暂存进 .claude/skills/ 供 claude -p 加载（每次重建，不留副本漂移）
+#   解析不到 → 该环节 refuse，在草稿里留 [SKILL MISSING: <name>] 占位并写进上报，
+#              绝不用自写 prompt 顶替
+# ---------------------------------------------------------------------------
+skills:
+  registry:
+    ai-writing-guideline:
+      # 指针 skill：它自己会去读 ai_writings.md 实时规则文件
+      search_paths:
+        - "/Users/shiyuanniu/SynologyDrive/Vivu/Agents/ai-writing-guideline"
+      required: true
+      used_by: ["cold_email", "linkedin_dm", "linkedin_post", "community_answer", "investor_ask"]
+    vivu-outreach:
+      search_paths:
+        - "/Users/shiyuanniu/SynologyDrive/Vivu/Agents/vivu-outreach"
+      required: true
+      used_by: ["cold_email"]
+    vivu-linkedin-rewriter:
+      # 2026-08-04 探测结果：全机器不存在。ai-writing-guideline 的「Precedence」节
+      # 引用了它，说明它曾经存在或本应存在。未安装 → LinkedIn 帖环节按 refuse 处理。
+      search_paths:
+        - "/Users/shiyuanniu/SynologyDrive/Vivu/Agents/vivu-linkedin-rewriter"
+        - "/Users/shiyuanniu/.claude/skills/vivu-linkedin-rewriter"
+      required: true
+      used_by: ["linkedin_post"]
+  # 运行时暂存目录（相对仓库根）。.gitignore 已排除，每次运行前重建。
+  stage_dir: ".claude/skills"
+  # 额外授权给 claude -p 读取的目录（--add-dir）。
+  #
+  # 为什么必须有：ai-writing-guideline 是**指针 skill**——它自己不含规则，只负责去读
+  # /Users/shiyuanniu/SynologyDrive/Vivu/Agents/ai_writings.md 这份每周同步的实时规则文件。
+  # headless claude 的默认可读范围是 cwd（仓库内），够不着那个路径。
+  # 2026-08-04 首次实跑实测：skill 如实报告「读不到实时规则文件…已按 fallback 核心自查」，
+  # 于是产线用的是 skill 自述的**过时子集**，不是真规则。
+  # 不授权这个目录 = 每天都在用 fallback，且这件事只会出现在草稿正文第一行，很容易被忽略。
+  extra_read_dirs:
+    - "/Users/shiyuanniu/SynologyDrive/Vivu/Agents"
+
+# ---------------------------------------------------------------------------
+# vivu-outreach 的写入目标重定向
+#
+# 出处：spec §J4「vivu-outreach 写入目标重定向：产线的作战板交付层运行时注入新五库的
+#       database ID（水箱、win/loss、台账），禁止写入已封存的旧作战板体系；skill 本体不改」。
+#
+# 实现方式：不改 SKILL.md 一个字，在 claude -p 的 prompt 里追加一段运行时覆盖指令。
+# 覆盖内容见 prompts/j4_draft.md 的「运行时覆盖」节。
+# ---------------------------------------------------------------------------
+skill_overrides:
+  vivu-outreach:
+    # Step 6「Notion 交付」在 J4 草稿环节整个关掉：草稿只推群，写库由 draft_runner 自己做。
+    disable_steps: ["Step 6"]
+    # 旧作战板体系一律禁写。这些名字出现在 skill 正文里，必须显式否掉。
+    forbidden_write_targets:
+      - "Segment A Sales Pipeline"
+      - "Segment B Sales Pipeline"
+      - "作战板"
+      - "Email cadence 追踪"
+    # 新五库 ID 由 draft_runner 从 .env 注入（不写在本文件里，避免 ID 出现在两处）
+    inject_db_keys: ["DB_PIPELINE", "DB_WINLOSS", "DB_LEDGER"]
+    # Apollo credit：J4 草稿环节禁止任何 Apollo 调用（skill Step 2 会想调 people_match）。
+    # 富化在 Phase 2 apollo_poll 已做过，草稿阶段再调等于重复付费。
+    forbid_apollo_calls: true
+
+# ---------------------------------------------------------------------------
+# 待触达队列
+#
+# 视图逻辑（spec §J4 补充「待触达视图过滤条件」）：
+#   状态 ∈ {inbox, Named} 且 触达时限在窗口内，按剩余时限升序。
+#
+# Phase 0 已记：Notion 过滤器表达不了「剩余时限」，视图只能按「触达时限起算」近似排序，
+# 跨 24h/48h 混排会偏。所以真正的窗口判定在这里用脚本算，不依赖 Notion 视图排序。
+# ---------------------------------------------------------------------------
+queue:
+  statuses: ["inbox", "Named"]
+  # 每类信号的窗口长度取 thresholds.yaml 的 sla 节，本文件不复制数字
+  window_hours_ref:
+    signal: "config/thresholds.yaml:sla.signal_hours"      # 24
+    referral: "config/thresholds.yaml:sla.referral_hours"  # 48
+  # 判定「来源=referral」优先于「信号类型=signal」——referral 走 48h 窗口
+  referral_source_value: "referral"
+  signal_type_value: "signal"
+  # 剩余时限 ≤ 此值才生成草稿。默认等于整个窗口 = 一入箱就备弹。
+  # null 表示不设额外门槛（窗口内全取）。
+  due_within_hours: null
+  # 已超时的行：仍然生成草稿并标注逾期。
+  # Why：超时不等于不用发了，反而最该先发。漏掉它们等于让 sla_check 报了警却没有弹药。
+  include_overdue: true
+  # 每次运行最多生成几条草稿。防止一次把整群刷屏。
+  # 【推演待校准】spec 未规定，取 scan.yaml caps.per_segment_per_round 同量级。
+  max_drafts_per_run: 10
+  # 同一水箱行在此小时数内已推过草稿就不再重推（读 logs/draft_runner_sent.json）
+  # Why：定时任务每天跑，窗口是 24/48h，不去重会连推两三天同一个人。
+  redraft_cooldown_hours: 72
+
+# ---------------------------------------------------------------------------
+# 切入角
+#
+# 出处：spec §J4「分角色：pain feeler 痛点共鸣，decision maker 成本对比加 case study」，
+#       以及「招聘公司用『已选雇人翻素材这个替代方案』切入角」。
+# ---------------------------------------------------------------------------
+angles:
+  by_role:
+    "pain feeler":
+      id: "pain_resonance"
+      label: "痛点共鸣"
+      brief: >-
+        从他自己说过的那句话切入，先把痛点说得比他更准，再说这件事本来可以不用这么费劲。
+        不谈 ROI、不谈预算、不提采购。这个角色的人不批预算，跟他谈成本反而显得没听懂他在抱怨什么。
+    "decision maker":
+      id: "cost_comparison"
+      label: "成本对比 + case study"
+      brief: >-
+        从他手下那个岗位现在花在翻素材上的时间切入，把它折成钱，再给一个同类团队的做法。
+        没有真客户结果时按 vivu-outreach 的诚实框架写 solution brief，用对方自己的公开数据，
+        绝不编造客户结果。
+    "双角色":
+      id: "dual"
+      label: "痛点共鸣起手，成本对比收尾"
+      brief: >-
+        一个人同时是感受痛点的人和批预算的人。前半段用他自己的原话讲痛，后半段一句话把它折成
+        岗位时间成本。不要写成两封信拼起来的样子。
+  # 招聘信号覆盖：命中即换角，压过 by_role
+  # spec 原文：「招聘公司用『已选雇人翻素材这个替代方案』切入角」
+  hiring_override:
+    id: "hiring_alternative"
+    label: "已选雇人翻素材这个替代方案"
+    brief: >-
+      他们正在招的这个岗位，工作内容有一大块是翻素材。切入角是：你们已经在为这件事付一个人的工资了，
+      这是一个已经做出的选择，不是没意识到问题。不说「别招了」，说「这个人到岗后第一个月会花多少
+      时间在翻找上」。
+    # 命中条件：信号原文或下一步动作里出现这些词（大小写不敏感）
+    # 【推演待校准】词表由 segments.yaml 的 hiring_keywords 并集 + 中文标记词构成
+    markers:
+      - "hiring"
+      - "在招"
+      - "招聘"
+      - "job posting"
+      - "apollo_backfill"
+    # 也认 segments.yaml 里每段的 hiring_keywords（运行时并入，不在此重复抄写）
+    also_use_segment_hiring_keywords: true
+
+# ---------------------------------------------------------------------------
+# 渠道
+#
+# spec §J4 列了四类 warm 触达：环二私信 / 互动者私信 / referral 触达 / 投资人 asks。
+# 渠道由「来源 + 来源链接形态」推定，推定不出来就标 unknown 并在草稿里请真人指定。
+# ---------------------------------------------------------------------------
+channels:
+  rules:
+    - id: "referral_touch"
+      label: "referral 触达"
+      when_source: "referral"
+      # referral 触达必须带引荐人名字，否则拒绝生成（见 evidence_gate）
+      requires_fields: ["引荐来源"]
+    - id: "linkedin_dm_engager"
+      label: "互动者私信"
+      when_source: "A1 扫描"
+      when_link_contains: "linkedin.com"
+    - id: "linkedin_dm_second_degree"
+      label: "环二私信"
+      when_source: "Apollo"
+      when_link_contains: "linkedin.com"
+    - id: "manual"
+      label: "手动录入，渠道待真人指定"
+      when_source: "手动"
+  fallback:
+    id: "unknown"
+    label: "渠道未定"
+
+# ---------------------------------------------------------------------------
+# 证据闸门
+#
+# spec §J4：「环二私信（必须引用信号原文）」、「LinkedIn 周 2 帖（素材仅限本周买家原话或
+# win/loss 洞察，无证据即拒绝生成）」。
+#
+# 闸门必须真的拒绝：缺证据的行不产出草稿，产出的是一条「缺什么」的说明，进上报。
+# ---------------------------------------------------------------------------
+evidence_gate:
+  # 需要「信号原文」非空才允许生成的渠道
+  require_signal_text_for: ["linkedin_dm_second_degree", "linkedin_dm_engager"]
+  # 「信号原文」里以此前缀开头的内容不算原话证据（Phase 2 apollo_poll 写的就是这种）
+  # Why：Apollo 名单行的信号原文写的是「命中条件」，不是本人说的话。
+  #      拿它当「引用信号原文」等于伪造一句买家原话。
+  not_real_quote_markers:
+    - "非原文引用"
+  # 不算原话证据时的处置：降级为 no_quote 变体（不引用、不装熟），并在草稿顶部标注
+  # 而不是整条拒绝——名单行本来就没有原话，全拒等于 Apollo 那条链永远出不了草稿。
+  no_quote_downgrade: true
+  # LinkedIn 帖：素材只能来自本周买家原话（win/loss 库）或 win/loss 洞察。无 → 拒绝。
+  linkedin_post_sources: ["winloss_quote", "winloss_insight"]
+  linkedin_post_refuse_when_empty: true
+
+# ---------------------------------------------------------------------------
+# Telegram 草稿消息
+#
+# 出处：spec §J4 补充「草稿消息模板（Telegram）：收件人、公司、角色标签 / 渠道 /
+#       到期倒计时 / 草稿正文（直接可复制）/ 水箱行 ID」。
+# 顺序与字段逐条照抄，不增不减。
+# ---------------------------------------------------------------------------
+telegram:
+  group_id_ref: ".env:TELEGRAM_GROUP_ID"
+  # 单条消息字符上限。Phase 1 friday_review 实测 6252 字符要拆 2 条。
+  max_chars_per_message: 3500
+  # 一条草稿一条消息：回执协议要按行 ID 认，混在一条里没法一一对应
+  one_draft_per_message: true
+
+# ---------------------------------------------------------------------------
+# 确认回执协议
+#
+# 出处：spec §J4 补充「Shawn 在绑定 group（chat ID -5261250225）里回复「sent 行ID」→
+#       sales agent 按规则更新该水箱行状态为触达中并写时间戳；只认 Shawn 账号发出的确认，
+#       群内其他消息一律忽略；兜底：次日 daily_sla 里由真人核对漏更新的行」。
+#
+# 2026-08-04 探测结果（openclaw.json）：
+#   telegram.groups["-5261250225"].requireMention = false  → 该群每条消息都会到达 agent
+#   telegram.groupAllowFrom = [6529461266]                 → 只有这个账号能触发 agent
+#   bindings 中 -5261250225 → agentId: vivu-sales
+# 三条合起来，「只认 Shawn 账号 + 群内其他消息忽略」在 OpenClaw 侧已经成立，
+# 规则本身写在 sales agent 的 workspace 指令里（见 openclaw/vivu-sales-receipt-rule.md）。
+# ---------------------------------------------------------------------------
+receipt:
+  enabled: true
+  # 回执语法。大小写不敏感，行 ID 取 Notion page id（带或不带连字符都认）。
+  pattern: "^\\s*sent\\s+([0-9a-fA-F-]{32,36})\\s*$"
+  # 只认这个 Telegram 数字 ID 发出的消息。出处：openclaw.json telegram.groupAllowFrom
+  allow_from_telegram_user_ids: [6529461266]
+  group_id: "-5261250225"
+  agent_id: "vivu-sales"
+  # 命中后对水箱行做的事
+  on_match:
+    set_status: "触达中"
+    stamp_field: "触达时限起算"   # 写当前时间戳
+    # 也在「下一步动作」追加一行留痕，便于事后核对是谁在什么时候确认的
+    append_next_action: "已由真人发出（回执确认）"
+  # 兜底：不配规则或规则没生效时，次日 daily_sla 由真人核对
+  fallback: "次日 daily_sla 人工核对漏更新的行"
+  # ⚠️ 未实测：回执 handler 需要真人在群里发一条真实回执才能验证端到端。
+  verified_end_to_end: false
+
+# ---------------------------------------------------------------------------
+# Apollo 冷 outreach sequence
+#
+# 出处：spec §J4「冷 outreach 闭环：Apollo sequence 按 segment 建」、
+#       §J4 补充「Apollo sequence 命名规范：seq_段字母_v版本（如 seq_B_v1）；
+#       每段 200 到 400 家；回流轮询每日一次，随 daily_sla 之后运行」。
+#
+# 本次范围：只建 A 段第一版，且只建 A 段的第一封（先只建 A 段）。建成即暂停。
+# ---------------------------------------------------------------------------
+sequence:
+  naming: "seq_{segment}_v{version}"
+  build_now:
+    segment: "A"
+    version: 1
+    name: "seq_A_v1"
+  # 每段目标公司数（spec：每段 200 到 400 家）。本次只建壳，不灌人。
+  companies_per_segment_min: 200
+  companies_per_segment_max: 400
+  # 建成后的状态。Apollo 侧字段名见 scripts/apollo_sequence.py 的注释。
+  create_as_active: false
+  # 步骤：本次只建 A 段（第一封）。后续 B/C 段由真人决定后再加。
+  steps:
+    - id: "A"
+      type: "auto_email"
+      day: 0
+      # 正文由 vivu-outreach + ai-writing-guideline 产线产出，不写死在配置里
+      body_source: "skill_pipeline"
+  # 按量计费防线
+  billing:
+    # 建 sequence 本身不消耗 credit（Apollo 的 credit 计在富化与解锁上），
+    # 但把人加进 sequence 会。本次不加人，加人开关默认关闭。
+    add_contacts: false
+    # 关闭开关（spec 硬约束「提供 --no-x 关闭开关」）
+    disable_flag: "--no-sequence"
+    # dry-run 必须先给费用预估
+    require_dry_run_estimate: true
+
+# ---------------------------------------------------------------------------
+# 回流轮询
+#
+# 出处：spec §J4「回流（apollo_poll.py）触发 24 小时内约 15 分钟通话的回复草稿，
+#       确认那封真人发；回流轮询自本 job 启动起才运行」、
+#       §J4 补充「回流轮询每日一次，随 daily_sla 之后运行」。
+# ---------------------------------------------------------------------------
+reply_poll:
+  enabled: true
+  # 轮询起点：本 job 启动之前的回复不处理（spec：自本 job 启动起才运行）
+  # 首次运行时写入 data/reply_poll_since.json，之后每次读它
+  since_state_file: "data/reply_poll_since.json"
+  # 回复草稿的 CTA：约一个写死时长的通话
+  call_minutes: 15
+  # 回复后多久内出草稿
+  respond_within_hours: 24
+  # 关闭开关
+  disable_flag: "--no-poll"
+  # 轮询本身是否计费：Apollo 的 emailer_messages 查询按 API 调用计，不按 credit。
+  # 仍然给 dry-run 预估，口径与 apollo_poll 一致。
+  billing:
+    consumes_credits: false
+    note: "回复查询走 emailer 接口，不消耗 people credit；富化才消耗。本脚本不富化。"
