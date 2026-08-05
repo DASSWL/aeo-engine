@@ -101,6 +101,22 @@ def norm_org(name):
     return " ".join((name or "").split()).lower()
 
 
+def cheap_key(person_name, company):
+    """富化**之前**能算出来的弱去重键：公司 + 名（first name）。
+
+    为什么需要它：真正的去重键是 `来源链接`，但那要富化之后才有，而富化按人计费。
+    没有这道预筛，每周跑一次就会先花 50 credits 把上周那批人重新富化一遍，
+    然后才发现全是重复、全部丢弃——钱花了，一行没进。
+
+    弱在哪：同公司同名的两个人会被误判成同一人。接受这个代价，因为
+      * 它只用来「省钱」，不用来「保证正确」
+      * 富化之后仍有按 linkedin_url 的权威去重兜底
+    水箱里已有的行 `人名` 是全名，取第一个词即 first name，与富化前的候选对齐。
+    """
+    first = (person_name or "").strip().split()
+    return "{}|{}".format(norm_org(company), (first[0] if first else "").lower())
+
+
 def complete_pairs(session, a_cfg, api_key, seg_body, segment, people,
                    max_companies, max_calls):
     """两段式配对的第二段：给单边公司补齐缺失那一侧。
@@ -439,7 +455,8 @@ def main():
         # ---- 有凭据才会走到这里 ----
         session = requests.Session()
         notion = ac.Notion(env["NOTION_TOKEN"], env["NOTION_VERSION"])
-        seen_urls = sc.existing_source_urls(notion.query_all(env["DS_PIPELINE"]))
+        pipeline_rows = notion.query_all(env["DS_PIPELINE"])
+        seen_urls = sc.existing_source_urls(pipeline_rows)
 
         now = sc.now_local(th)
         now_iso, today = now.isoformat(timespec="minutes"), now.strftime("%Y-%m-%d")
@@ -476,8 +493,32 @@ def main():
             for grp in groups:
                 all_groups.append({"entry": key, "segment": entry["segment"], "rows": grp})
 
-        # ---- 富化。必须排在去重之前：来源链接是富化之后才有的，
-        #      先去重等于拿一堆空 key 互相比对，什么都拦不住。----
+        # ---- 富化前的廉价预筛：把水箱里已有的人先剔掉，不为重复的人付富化费 ----
+        seen_cheap = set()
+        for r in pipeline_rows:
+            props = r.get("properties", {})
+            seen_cheap.add(cheap_key(ac.title_text(props, "人名"),
+                                     ac.rich_text(props, "公司")))
+        prefiltered, pre_skipped = [], []
+        for grp in all_groups:
+            keep = []
+            for row in grp["rows"]:
+                if cheap_key(row["人名"], row["公司"]) in seen_cheap:
+                    pre_skipped.append({"人名": row["人名"], "公司": row["公司"],
+                                        "reason": "富化前预筛：公司+名 已在水箱，不付富化费"})
+                    continue
+                keep.append(row)
+            if len(grp["rows"]) == 2 and len(keep) == 1:
+                r = keep[0]
+                missing = ROLE_DM if r["角色标签"] == ROLE_PAIN else ROLE_PAIN
+                r["下一步动作"] = a_cfg["single_side_note_template"].format(
+                    missing_role=missing)
+            if keep:
+                prefiltered.append(dict(grp, rows=keep))
+        all_groups = prefiltered
+
+        # ---- 富化。必须排在（权威）去重之前：来源链接是富化之后才有的，
+        #      先按链接去重等于拿一堆空 key 互相比对，什么都拦不住。----
         enrich_stats = {}
         if args.no_enrich:
             enrich_stats = {"skipped": "--no-enrich：本次未富化，行内无全名与来源链接"}
@@ -552,6 +593,8 @@ def main():
             "group_stats": stats,
             "enrich": enrich_stats,
             "planned_rows": sum(len(g["rows"]) for g in deduped),
+            "prefiltered_before_enrich": pre_skipped,
+            "credits_saved_by_prefilter": len(pre_skipped) * a_cfg["enrich"]["credits_per_person"],
             "dropped_no_source_link": dropped_no_link,
             "skipped_dupe": skipped_dupe,
             "groups": deduped,
