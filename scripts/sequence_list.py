@@ -81,6 +81,8 @@ def main():
     parser.add_argument("--companies", type=int, default=400, help="目标公司数上限")
     parser.add_argument("--pages", type=int, default=20, help="最多翻几页（每页 100 人）")
     parser.add_argument("--per-page", type=int, default=100, dest="per_page")
+    parser.add_argument("--no-locations", dest="no_locations", action="store_true",
+                        help="不加地域筛选（用来跟加了之后做对照，看噪音率是真降了还是采样波动）")
     args = parser.parse_args()
 
     try:
@@ -88,6 +90,11 @@ def main():
         th = ac.load_config("thresholds.yaml")
         segments = ac.load_config("segments.yaml")["segments"]
         cfg = ac.load_config("scan.yaml")["apollo"]
+
+        outreach = ac.load_config("outreach.yaml")
+        locations = ((outreach.get("sequence") or {}).get("targeting") or {}).get("person_locations") or []
+        if args.no_locations:
+            locations = []
 
         seg = segments.get(args.segment)
         if not seg:
@@ -108,12 +115,15 @@ def main():
         total_entries, people_seen, pages_done = None, 0, 0
 
         for page in range(1, args.pages + 1):
-            body = apollo(session, cfg, api_key, cfg["people_search_path"], {
+            payload = {
                 "person_titles": titles,
                 "q_organization_keyword_tags": tags,
                 "organization_num_employees_ranges": ranges,
                 "page": page, "per_page": args.per_page,
-            })
+            }
+            if locations:
+                payload["person_locations"] = locations
+            body = apollo(session, cfg, api_key, cfg["people_search_path"], payload)
             if total_entries is None:
                 total_entries = body.get("total_entries")
             people = body.get("people") or body.get("contacts") or []
@@ -164,7 +174,8 @@ def main():
             "segment": args.segment,
             "segment_name": seg.get("name"),
             "conditions": {"titles": titles, "keyword_tags": tags,
-                           "employee_ranges": ranges},
+                           "employee_ranges": ranges,
+                           "person_locations": locations or "（未加地域筛选）"},
             "apollo_total_entries": total_entries,
             "pages_fetched": pages_done, "people_seen": people_seen,
             "companies_found": len(companies),

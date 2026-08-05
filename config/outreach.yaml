@@ -342,6 +342,27 @@ sequence:
   # 每段目标公司数（spec：每段 200 到 400 家）。本次只建壳，不灌人。
   companies_per_segment_min: 200
   companies_per_segment_max: 400
+
+  # 候选池筛选条件（scripts/sequence_list.py 用；apollo_poll 的水箱链不受影响）
+  targeting:
+    # 【推演待校准】spec 未规定地域。加这一条的依据是 2026-08-05 首轮实测：
+    # 400 家里 13 家（3.2%）是非拉丁字母公司名（韩国、中国、德国），
+    # 而 seq_A_v1 发的是英文冷邮件——给这些公司发英文信转化基本为零，
+    # 却要为每个人付一份富化费。
+    #
+    # 根因是 Phase 2 §七 记过的那条：Apollo 的行业筛选被降级成关键词标签
+    # （它要 organization_industry_tag_ids 内部 ID，segments.yaml 写的是行业名文本），
+    # 命中面又宽又糊。地域筛选是在不解冻 segments.yaml 的前提下收窄命中面的办法。
+    #
+    # 首轮跑完要对照「加之前 vs 加之后」的噪音率，不能只看加了之后的数字——
+    # 分不清是筛选起了作用还是采样波动。
+    person_locations:
+      - "United States"
+      - "Canada"
+      - "United Kingdom"
+      - "Australia"
+      - "New Zealand"
+      - "Ireland"
   # 建成后的状态。Apollo 侧字段名见 scripts/apollo_sequence.py 的注释。
   create_as_active: false
   # 步骤：本次只建 A 段（第一封）。后续 B/C 段由真人决定后再加。
