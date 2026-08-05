@@ -507,3 +507,91 @@ python3 scripts/daily_brief.py --as-of 2026-08-10 --sample --stdout-only   # 周
 
 `--sample` 表示日历按 `--as-of` 走、数字仍取今天的真实数据——否则三份样例全挂着
 「08:00 没留下结果」，看不出正常形态长什么样。
+
+---
+
+# Query 库进料链（2026-08-05）
+
+**只加了诊断与一条新链的脚本，没动任何既有脚本、既有定时任务、五库 schema。**
+
+## 为什么单独一节
+
+Query 库是 J1 第 5 类「痛点级 query 的 AEO 内容」的唯一输入。它现在 10 行，
+全部 `数据来源 = 探测问题`，月搜索量全空，2026-08-05 一次写入之后再没长过。
+
+更要紧的是它**是个封闭集合**：那 10 条是我们自己写在 `config/scan.yaml` 里的问题。
+拿它推断「市场在问什么」，得到的是我们自己假设的回声。
+
+## 两个新脚本（都只读，都零成本）
+
+| 脚本 | 干什么 | 默认 |
+|---|---|---|
+| `query_intake_health.py` | 四条进料链逐条诊断：能否产新 query / 断在哪 / 修通需要什么 | dry-run，只读 |
+| `buyer_quote_queries.py` | win/loss 的「买家原话」→ Query 库候选（逐字，不改写） | dry-run，只读 |
+
+执行体 `run_query_intake.sh` 把两个跑成一次，写 outbox 由 `outbox_sweep` 转发。
+**当前未挂任何定时任务**——挂哪个 cron 是真人的决定，建议见下。
+
+## 五种「断」要分开谈
+
+诊断脚本刻意把断点分成 缺脚本 / 缺 schema / 缺凭据 / 缺调度 / 缺真人动作 五类。
+混在一起谈只会得出「都做一遍」这种没用的结论——它们修法与代价完全不同。
+
+2026-08-05 首跑结论：**四条链没有一条能产新 query。**
+
+| 数据来源 | 写它的脚本 | 能建行 | 断在哪 |
+|---|---|---|---|
+| 探测问题 | `probe_questions_sync.py` | 能 | 缺调度 + 缺真人动作（config 里 10 条已全部入库，再跑 `to_create=0`） |
+| Keyword Planner | `keyword_volume.py` | 能 | 缺凭据 + 缺调度 + 缺真人动作（`data/kw/` 空，`parsed_rows=0`） |
+| SERP 观察 | `serp_scan.py` | **不能** | 缺 schema + 缺凭据 + 缺调度 |
+| 买家原话 | `buyer_quote_queries.py`（本次新建） | 能 | 缺真人动作（win/loss 2 行，「买家原话」**0 条**） |
+
+## 补量 ≠ 发现
+
+- **补量**：给我们已经想到的词查搜索量。种子来自 config，config 不变就不产新词。
+- **发现**：能带回我们**没想到**的词。
+
+`keyword_volume` 的 28 条种子 = spec 首批 3 条 + `segments.yaml` 五段
+`linkedin_keywords` 25 条，两个来源都是我们自己写的。挂上定时任务它每天做的
+也只是补量。它唯一的发现面是 CSV 里**不在种子表**的行（`in_seed_list=false`），
+那取决于真人怎么导出，不取决于脚本。
+
+真正具备发现能力的只有**买家原话**一条，而它现在燃料是 0。
+
+## 买家原话链的触发线是错的
+
+`gates.yaml` 的 `win_loss_min = 5` 数的是**对话场次**。但这条链吃的是**原话**。
+零回复的 cold outbound 也记一行 loss，它产出 0 条原话——攒到 5 行仍可能是 0 条。
+当前 win/loss 2 行，两行都是零回复 loss，「买家原话」都为空。
+
+**真正的触发线是「有买家原话的 win/loss 行数」，现在是 0。**
+
+## 两道闸
+
+1. 默认 dry-run，写库必须显式 `--commit`（与 Phase 2 三脚本同一条纪律）。
+2. `buyer_quote_queries.py --commit` 还要求 `config/buyer_quotes.yaml`
+   的 `meta.status == approved`。该文件整份是【推演待校准】的 marker 词表，
+   **当前是 `draft`**，所以 `--commit` 会拒绝执行。先 `--review` 出审核清单，
+   真人审过词表再改 `approved`。
+
+## 又撞上同一堵墙
+
+Query 库 7 个冻结字段里没有能装**出处**的列（`关联资产` 是指向台账的 relation，
+不是指向 win/loss）。所以「每条 query 回溯到具体 win/loss 行」只能落在
+`logs/buyer_quote_queries_*.json` 与 outbox 审核清单里，Notion 侧存不下。
+
+这与 SERP 链装不下占位者名单是**同一堵墙**，同属 Phase 2 §八① 待拍板项。
+本次不解冻、不加字段、不另建库，原样报告。
+
+## 建议的调度（未创建，待拍板）
+
+| 链 / 脚本 | 建议 | 频率 | 挂哪 | 为什么 |
+|---|---|---|---|---|
+| `run_query_intake.sh` | 挂 | 周五 14:00 | OpenClaw · vivu-sales · `mode: none` | 排在 `a1_health` 14:30 与 `friday_review` 15:00 之前，让复盘拿到「query 从哪来」的现状 |
+| `keyword_volume.py` | 挂 dry-run | 每月 1 日 11:00 | OpenClaw | 瓶颈是真人导 CSV，不是脚本。月频 dry-run 只为把「`data/kw/` 还是空的」变成可见 |
+| `probe_questions_sync.py` | **不挂** | — | — | 它是 config 变更时的一次性同步。挂上每天 `to_create=0`，纯噪音 |
+| `serp_scan.py` | **不挂** | — | — | 缺 key 且结构上写不了行。挂上每天以退出码 2 刷屏 |
+
+全部挂 OpenClaw 而不是 Claude scheduled task：这几个脚本是本机 Python、只读、零 LLM，
+OpenClaw 能直连 Telegram。Claude 侧任务只能写 outbox 靠 `outbox_sweep`（2026-08-05 才补上）
+兜底转发，那条路留给真正需要浏览器与 LLM 的探测和扫描。

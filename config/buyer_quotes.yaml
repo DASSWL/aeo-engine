@@ -1,0 +1,80 @@
+# AEO Engine · 买家原话 → Query 库 的抽取规则
+#
+# 出处与边界：
+#   Phase 0 冻结的 Query 库 `数据来源` 四个合法取值之一是「买家原话」。
+#   Concept A1 的 Output 里，痛点级 query 的语料来源写的是「积累的买家原话语料」，
+#   J1 第 5 类明文「语言用买家原话，不用营销话术」。
+#   这条链的产出定义是「**买家实际怎么说**」，不是「我们觉得买家会怎么搜」。
+#
+# 为什么另起文件而不是并进 scan.yaml：
+#   scan.yaml 是 Shawn 2026-08-04 逐条审过并标 approved 的。
+#   本文件整份是【推演待校准】——marker 词表没有任何实测支撑，
+#   塞进已审过的文件会让「审过」失去意义。同 Phase 2 §六 的处置。
+#
+# ⚠️ meta.status 现在是 draft。脚本 --commit 会因此拒绝写库。
+#    真人审过词表、确认它没把不该进的句子放进来之后，改成 approved 才能写。
+
+meta:
+  version: "0.1"
+  status: draft            # draft | approved —— approved 之前 --commit 拒绝执行
+  drafted_at: "2026-08-05"
+  drafted_for: "Query 库进料链重建：买家原话链"
+  reviewed_by: null
+  reviewed_at: null
+
+extract:
+  # 逐字保留是硬约束：抽出来的 query 文本必须是买家原话里**原样出现过的一段**，
+  # 脚本不改写、不翻译、不概括、不补全。改写一个字，它就不再是买家说过的话。
+  verbatim: true
+
+  # 把一条「买家原话」切成子句的分隔符。切完只做首尾去空白，不做任何其他处理。
+  clause_separators: ["\n", ". ", "? ", "! ", "; ", "。", "？", "！", "；"]
+
+  # 子句长度闸。太短的（"yes"）不是 query，太长的（整段抱怨）不是任何人会打进搜索框的东西。
+  # 【推演待校准】：这两个数没有实测支撑，首批候选出来后由真人调。
+  min_words: 3
+  max_words: 16
+
+  # 检索意图 marker。只有命中的子句才成为候选。
+  # 判据是「这句话描述的是找东西 / 解决办法 / 选工具」，不是「这句话情绪强烈」。
+  # 【推演待校准】：整张表无实测支撑。
+  intent_markers:
+    - find
+    - finding
+    - search
+    - searching
+    - look for
+    - looking for
+    - locate
+    - dig through
+    - digging through
+    - go through
+    - scrub through
+    - how do we
+    - how do i
+    - how do you
+    - is there a way
+    - we need
+    - i need
+    - we want
+    - i want
+    - we tried
+    - we use
+    - we used
+    - instead of
+
+  # 命中即整条丢弃的词。这些是关于**我们**的句子，不是买家在找什么。
+  # 把它们写进 Query 库等于把销售对话记录当成搜索词。
+  exclude_markers:
+    - vivu
+    - your product
+    - your tool
+    - your demo
+    - the demo you
+
+notes:
+  - "本链不产生任何对外请求，零成本。"
+  - "Query 库 7 个冻结字段里没有能装出处的列（关联资产是指向台账的 relation，
+     不是指向 win/loss）。因此每条候选的 win/loss 出处只落在
+     logs/buyer_quote_queries_*.json 与 outbox 的审核清单里，
+     Notion 侧存不下。这与 SERP 链撞的是同一堵墙，同属待拍板项。"
