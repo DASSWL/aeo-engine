@@ -141,7 +141,7 @@ def overdue_count(day_str, data_cfg):
 # 渲染
 # --------------------------------------------------------------------------
 
-def render(cfg, now, isoweekday, numbers):
+def render(cfg, now, isoweekday, numbers, env):
     r = cfg["render"]
     s = cfg["sections"]
     lines = [r["header"].format(
@@ -210,7 +210,18 @@ def render(cfg, now, isoweekday, numbers):
     if frags:
         lines += ["", w["title"], w["joiner"].join(frags)]
 
-    # ---- ④ 挂账清单 ----
+    # ---- ④ 要 review 的五个库 ----
+    rl = s["review_links"]
+    if rl["enabled"]:
+        lines += ["", rl["title"]]
+        for it in rl["items"]:
+            # URL 由 .env 的 DB_ ID 拼，不在 config 里抄第二份
+            # （拼法与 sla_check.py 末行的台账链接一致）
+            lines.append(rl["line"].format(
+                label=it["label"],
+                url=rl["url_base"].format(id=env[it["env_key"]].replace("-", ""))))
+
+    # ---- 固定末行：挂账清单 ----
     t = s["tail"]
     lines += ["", t["line"].format(url=t["url"])]
 
@@ -296,7 +307,8 @@ def main():
             "overdue": overdue_count(sla_day.strftime("%Y-%m-%d"), data_cfg),
         }
 
-        lines, line_count, truncated = render(cfg, render_day, isoweekday, numbers)
+        lines, line_count, truncated = render(
+            cfg, render_day, isoweekday, numbers, env)
         body = "\n".join(lines)
         if not body.strip():
             raise RuntimeError(cfg["failure"]["empty_render"])

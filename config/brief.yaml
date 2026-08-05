@@ -21,9 +21,16 @@ meta:
 # 渲染约束
 # ---------------------------------------------------------------------------
 render:
-  # 硬上限。手机一屏读完是这条简报存在的前提——读不完就没人读。
-  # 超限时脚本先压掉空行，仍超限则截断并留下 overflow_marker（截断必须看得见）。
-  max_lines: 25
+  # 行数上限。超限时脚本先压掉空行，仍超限则截断并留下 overflow_marker（截断必须看得见）。
+  #
+  # ⚠️ 2026-08-05 从 25 提到 32，是一次**有意识的取舍**，不是放宽纪律：
+  #    原始要求是「不超过 25 行，手机一屏读完」。当天追加要求「简报里加上五库链接」，
+  #    Shawn 在已知代价（固定占 5 行 + 小节标题 + 空行 = 7 行）的前提下选了要。
+  #    两条要求不可能同时满足，25 行的一屏目标就此让位。
+  #    32 是**实测最坏形态**的行数（周一 + 台账待签发与超时两行都出现），
+  #    定成 32 是为了让简报永不触发截断——截断一条真简报比长一点更糟。
+  #    想要回一屏：把 sections.review_links.enabled 改成 false，上限调回 25。
+  max_lines: 32
   overflow_marker: "…（超出 {max} 行上限已截断，完整版见 outbox 原文）"
   header: "☀️ AEO Engine · 今日简报 {date}（{weekday}）"
   weekday_names: ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
@@ -125,7 +132,7 @@ sections:
     # 这三件与数字无关，永远显示，不参与省略规则。
     fixed:
       - "· 收到草稿 → 改一改 → 亲手发出 → 回「sent 行ID」"
-      - "· 水箱 inbox 甄别：值得跟的转 Named，不值得的淘汰"
+      - "· AEO Pipeline inbox 甄别：值得跟的转 Named，不值得的淘汰"
       - "· 有对话的日子：24 小时内填 win/loss"
     # 动态数字：为 0 即整行省略。
     dynamic:
@@ -140,7 +147,7 @@ sections:
       inbox_pending:
         line: "· inbox 待甄别 {n} 条"
       ledger_pending:
-        line: "· 台账待签发 {n} 条"
+        line: "· AEO Content Ledger 待签发 {n} 条"
       overdue:
         # 只给计数。详情以 08:00 推送为准，简报重复展开就是第三份噪音。
         line: "· 超时 {n} 条（详情见 08:00 推送）"
@@ -153,6 +160,31 @@ sections:
     joiner: "　·　"
     today_word: "就在今天"
     future_word: "还有 {n} 天"
+
+  # ④ 要 review 的五个库。2026-08-05 追加。
+  #
+  # 库名与链接的唯一出处：label 在这里，URL 由脚本用 .env 的 DB_ ID 拼出来
+  # （与 sla_check.py 末行台账链接同一拼法）。不在这里抄一遍 URL——
+  # 抄了就有两份出处，改库必漏一处。
+  #
+  # 这五行每天完全一样，是全篇信息密度最低的部分（见 render.max_lines 的注释）。
+  # enabled: false 即整节消失，是拿回「一屏读完」的那一个开关。
+  review_links:
+    enabled: true
+    title: "④ 要 review 的五个库"
+    line: "{label}：{url}"
+    url_base: "https://app.notion.com/p/{id}"
+    items:
+      - label: "AEO Pipeline"
+        env_key: "DB_PIPELINE"
+      - label: "AEO Win-Loss"
+        env_key: "DB_WINLOSS"
+      - label: "AEO Content Ledger"
+        env_key: "DB_LEDGER"
+      - label: "AEO Probe Log"
+        env_key: "DB_PROBE"
+      - label: "AEO Query Library"
+        env_key: "DB_QUERY"
 
   # 固定末行。只给链接，不解析其内容——挂账清单是给人读的，不是给简报复述的。
   tail:
@@ -179,5 +211,5 @@ failure:
     - "只是取数或渲染挂了。真正该担心的是 10:00 什么都没收到。"
     - ""
     - "① 的自动任务清单不受影响，那几个任务是各自独立的定时任务。"
-    - "② 的数字请直接去 Notion 看：水箱 inbox 视图、台账待签发视图。"
+    - "② 的数字请直接去 Notion 看：AEO Pipeline 的 inbox 视图、AEO Content Ledger 的待签发视图。"
   empty_render: "渲染结果为空——这不是「今天没事」，是模板或取数出了问题。"
