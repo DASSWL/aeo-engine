@@ -1,13 +1,14 @@
 # ============================================================================
 # segments.yaml —— 5 个 v0 segment 的扫描与名单配置
 #
-# ⚠️⚠️ 状态：草稿，待 Shawn 审 —— 未定稿，不得据此开跑 Phase 2 扫描 ⚠️⚠️
+# ✅ 状态：2026-08-04 Shawn 审核通过，已定稿。Phase 2 的 A1 扫描按本文件实例化。
 #
 # 依据：AEO Engine Concept 页（A1 感知的扫描清单、双维度标签定义、角色定义）
 #       AEO Engine 落地计划 v0.1 §三 Phase 3 J0（5 个 v0 segment 的选定与落选说明）
 #       源头：Mega Doc Appendix D 的 12 segment 注册表
 #
-# 起草人对 Shawn 的交代：
+# 起草人当时对 Shawn 的交代（保留存档：定稿不等于这些内容有了出处，
+# 下面三处仍是拍的，实跑后按填补速度回头校准）：
 #   segment 的「名字」与「一句话定义」有出处（落地计划已写死 A–E 五个名字）。
 #   但下面每个 segment 的 linkedin_keywords / hiring_keywords / subreddits /
 #   apollo / titles 四类内容，**在现有 Notion 页里没有任何出处**——Concept 页
@@ -27,11 +28,11 @@
 # ============================================================================
 
 meta:
-  version: "0.1-draft"
-  status: "draft_pending_review"      # 定稿后改为 approved，并记 reviewed_by / reviewed_at
+  version: "0.1"
+  status: "approved"
   drafted_at: "2026-08-04"
-  reviewed_by: null
-  reviewed_at: null
+  reviewed_by: "Shawn"
+  reviewed_at: "2026-08-04"
   source_registry: "Mega Doc Appendix D（12 segment 注册表）"
 
 # 全局默认：各 segment 未覆盖时回落到这里。
