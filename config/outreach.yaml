@@ -45,19 +45,20 @@ skills:
     ai-writing-guideline:
       # 指针 skill：它自己会去读 ai_writings.md 实时规则文件
       search_paths:
-        - "/Users/shiyuanniu/SynologyDrive/Vivu/Agents/ai-writing-guideline"
+        - "/Users/shiyuanniu/SynologyDrive/Vivu/Agents/MarketingAgent/skills/ai-writing-guideline"
       required: true
       used_by: ["cold_email", "linkedin_dm", "linkedin_post", "community_answer", "investor_ask"]
     vivu-outreach:
       search_paths:
-        - "/Users/shiyuanniu/SynologyDrive/Vivu/Agents/vivu-outreach"
+        - "/Users/shiyuanniu/SynologyDrive/Vivu/Agents/MarketingAgent/skills/vivu-outreach"
       required: true
       used_by: ["cold_email"]
     vivu-linkedin-rewriter:
-      # 2026-08-04 探测结果：全机器不存在。ai-writing-guideline 的「Precedence」节
-      # 引用了它，说明它曾经存在或本应存在。未安装 → LinkedIn 帖环节按 refuse 处理。
+      # 原版 2026-08-04 确认丢失，2026-08-05 按 Rubric v1 的引述重建。
+      # 重建版仍有两处缺口（banned phrases 词表、hook 模板），skill_check 会把它报成
+      # complete=false / degraded_steps=[linkedin_post]——可跑，但产出必须声明降级了什么。
       search_paths:
-        - "/Users/shiyuanniu/SynologyDrive/Vivu/Agents/vivu-linkedin-rewriter"
+        - "/Users/shiyuanniu/SynologyDrive/Vivu/Agents/MarketingAgent/skills/vivu-linkedin-rewriter"
         - "/Users/shiyuanniu/.claude/skills/vivu-linkedin-rewriter"
       required: true
       used_by: ["linkedin_post"]
