@@ -112,7 +112,7 @@ def person_record(raw, segment, role):
     }
 
 
-def group_and_pair(people, segment, caps, single_side_tpl):
+def group_and_pair(people, segment, caps, single_side_tpl, max_companies=None):
     """按公司分组 → 双角色配对。返回待入箱的行（已按上限截断）。
 
     配对规则（spec §一.2「同公司配对」）：
@@ -120,6 +120,13 @@ def group_and_pair(people, segment, caps, single_side_tpl):
       * 同一个人的 title 同时命中两类 → 单人打「双角色」，不与他人配对
       * 只挖到单边 → 降级入箱，在「下一步动作」标注缺失的那一侧
     优先级：完整配对 > 双角色 > 单边。上限用满即停，不为凑数拿单边顶掉配对。
+
+    ⚠️ 公司数上限 max_companies 必须在**分组之后**才截断。
+       2026-08-04 首次实测踩到的坑：原实现把两次角色搜索的结果拼成一个列表，
+       按出现顺序取前 N 家公司——pain feeler 的结果排在前面，于是选中的 N 家
+       全来自 pain feeler 那一批，decision maker 只要不在这 N 家里就被丢掉，
+       配对在截断阶段就已经不可能发生，`paired` 恒为 0。
+       那个 0 是实现造出来的假象，不是 Apollo 或 segments.yaml 的证据。
     """
     by_org = {}
     for p in people:
@@ -150,16 +157,24 @@ def group_and_pair(people, segment, caps, single_side_tpl):
             single.append([dict(dm[0], 角色标签=ROLE_DM,
                                 下一步动作=single_side_tpl.format(missing_role=ROLE_PAIN))])
 
-    groups, used = [], 0
+    # 先按优先级排队，再同时受「行数上限」与「公司数上限」两道闸。
+    # 顺序不能反：先截公司数会把配对好的公司挤掉（见上方 docstring 的坑）。
+    groups, used, companies_taken = [], 0, 0
     cap = caps["per_segment_per_round"]
     for bucket in (paired, dual, single):
         for grp in bucket:
             if used + len(grp) > cap:
                 continue
+            if max_companies is not None and companies_taken >= max_companies:
+                break
             groups.append(grp)
             used += len(grp)
-    return groups, {"companies": len(by_org), "paired": len(paired),
-                    "dual_role": len(dual), "single_side": len(single),
+            companies_taken += 1
+    return groups, {"companies_found": len(by_org),
+                    "paired": len(paired), "dual_role": len(dual),
+                    "single_side": len(single),
+                    "companies_taken": companies_taken,
+                    "max_companies": max_companies,
                     "rows_after_cap": used, "cap": cap}
 
 
@@ -325,17 +340,10 @@ def main():
                 calls += 1
                 for raw in (body.get("people") or []) + (body.get("contacts") or []):
                     people.append(person_record(raw, entry["segment"], req["role"]))
-            if entry["kind"] == "segment_search":
-                orgs, keep = [], []
-                for p in people:
-                    if p["org_id"] not in orgs:
-                        if len(orgs) >= max_companies:
-                            continue
-                        orgs.append(p["org_id"])
-                    keep.append(p)
-                people = keep
+            # 公司数上限交给 group_and_pair 在分组之后施加，这里不做任何预截断。
+            limit = max_companies if entry["kind"] == "segment_search" else None
             groups, st = group_and_pair(people, entry["segment"], caps,
-                                        a_cfg["single_side_note_template"])
+                                        a_cfg["single_side_note_template"], limit)
             key = "{}:{}".format(entry["kind"], entry.get("company") or entry["segment"])
             stats[key] = st
             for grp in groups:

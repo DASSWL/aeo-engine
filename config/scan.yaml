@@ -330,7 +330,10 @@ query:
 # ---------------------------------------------------------------------------
 apollo:
   base_url: "https://api.apollo.io/api/v1"
-  people_search_path: "/mixed_people/search"
+  # 2026-08-04 实测：/mixed_people/search 对 API 调用者已废弃，返回 HTTP 422 并指向新端点。
+  # 原文：「This endpoint is deprecated for API callers. Please use the new
+  #        mixed_people/api_search endpoint」
+  people_search_path: "/mixed_people/api_search"
   auth_header: "x-api-key"
   per_page: 25
   # 每 segment 每轮最多取几家公司做配对。与 caps.per_segment_per_round 对齐：
