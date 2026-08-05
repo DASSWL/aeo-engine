@@ -346,6 +346,37 @@ claude CLI 的其他自动化，都存在同样问题」——J4 就是那个「
 
 这是**正确行为**，不是缺陷。没有燃料时产出内容只能靠编，而编造正是这些闸门要防的。
 
+## J2 凭据链（2026-08-05 已验证）
+
+Netlify 环境变量已由真人配置完毕并实测通过，不需要再查一遍：
+
+| 变量 | 值 | 作用域 |
+|---|---|---|
+| `AEO_NOTION_TOKEN` | 专用 internal integration，只连内容资产台账单库 | Builds，全 context |
+| `AEO_DS_LEDGER` | `17847467-bea1-4377-97b6-0d9a3e3bd33b`（**data source ID，不是 database ID**） | Builds，全 context |
+| `AEO_NOTION_VERSION` | `2025-09-03` | Builds，全 context |
+| `AEO_WRITEBACK` | `commit` | Builds，**仅 Production** |
+| `AEO_LINT_REQUIRE_LEDGER` | 未配置（等跑顺再开） | — |
+
+`AEO_WRITEBACK` 只给 Production 的理由：Deploy Preview 也跑完整 build，
+预览环境若也 commit，每开一个 PR 台账就被写成「已发布」，可内容根本没上线。
+
+三项实测证据：
+- 生产构建日志出现 `aeo-lint: 台账读到 0 行` —— token / DS ID / Connections 全通。
+  ⚠️ 注意区分：若日志出现「AEO_NOTION_TOKEN / AEO_DS_LEDGER 未配置，跳过台账比对」，
+  构建**照样是绿的**，但整个台账比对没跑。绿色部署不等于凭据配对了。
+- `PATCH /v1/data_sources/<DS_LEDGER>` 空 body → 200，说明有 `Update content`。
+  回写走的就是这个能力；spec §J2 写的「只读 token」与「CI 回写台账」自相矛盾，
+  只读做不了回写。实际按最小可用集配的：Read content + Update content，
+  不给 Insert content、不给用户信息，且只连台账一个库。
+- 该空 PATCH 已验证是无副作用空操作（前后字段数 9/9、字段名逐字一致），
+  可作为将来复查写权限的常规探针。**不要用「建一行测试记录」来测写权限**——
+  Phase 0 那六条测试记录当时删不掉，拖到 Phase 1 才用原生 API 逐条 archive。
+
+排查端点时注意：`4a46acc3-c08f-457b-8771-43328b58e896` 是 **database ID**，
+拿它去 `/v1/pages/{id}` 查会 404，且**任何权限的 token 都会 404**——
+那个 404 不能用来判断权限。
+
 ## J2 在另一个仓库
 
 J2 的东西全部落在 `~/project/vivu_web`（vivu.ai 站点仓库），三个分支已推、
