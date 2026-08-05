@@ -12,11 +12,19 @@
 
 用法：python3 scripts/metrics.py
 输出：data/metrics_YYYY-WW.json
+
+口径变更记录
+------------
+2026-08-05（Shawn 拍板）：signal_hit_rate 的分母改为**只统计本周窗口内**的
+logs/scan_*.json。此前是把全部历史文件无过滤累加——分子按周、分母累计，
+跑得越久比率越小，会呈现为「信号质量持续下降」而实际只是分母在单调累积。
+原属 Phase 2 §八 四个待拍板问题之一，Phase 1 实现结果页记的是旧的累计口径。
 """
 
 import glob
 import json
 import os
+import re
 import sys
 from datetime import datetime, timedelta
 
@@ -51,14 +59,47 @@ def blank_metrics():
     }
 
 
-def read_scan_totals(segments):
+SCAN_FILE_DATE_RE = re.compile(r"scan_(\d{4}-\d{2}-\d{2})\.json$")
+
+
+def read_scan_totals(segments, window=None, tz=None):
     """信号命中率的分母：A1 扫描命中总数，来自 logs/scan_*.json。
 
     该日志是 Phase 2 的约定，Phase 1 阶段必然缺失。
     spec 明文：日志缺失时输出 null 并注明，不许猜。
+
+    2026-08-05 修正（Shawn 拍板，原属 Phase 2 §八 四个待拍板问题之一）：
+    **只统计落在本周窗口内的扫描日志**。
+
+    原实现把 logs/scan_*.json 的全部历史文件无过滤累加，而分子 weekly_inbox 是按周的。
+    分子按周、分母累计，跑得越久 signal_hit_rate 越小——它会呈现为「信号质量在持续
+    下降」，而实际上只是分母在单调累积。这个失真在只有一两个日志文件时看不出来，
+    正是它危险的地方：等它明显时，已经拿这个指标做过几周判断了。
+
+    window 为 None 时退回旧的累计口径（保持向后兼容，但会在 caveats 里说明）。
     """
-    files = sorted(glob.glob(os.path.join(ac.LOGS_DIR, "scan_*.json")))
+    files_all = sorted(glob.glob(os.path.join(ac.LOGS_DIR, "scan_*.json")))
+    if window is None:
+        files = files_all
+    else:
+        files = []
+        for path in files_all:
+            m = SCAN_FILE_DATE_RE.search(os.path.basename(path))
+            if not m:
+                # 文件名不带日期 → 无法判断归属哪一周，不猜，直接排除。
+                # 宁可分母偏小（比率偏高、看起来乐观）也不要把不知道哪周的数混进来？
+                # 不——偏高同样是错的。所以这里排除并在 note 里列出，让它可见。
+                continue
+            d = datetime.fromisoformat(m.group(1))
+            if tz is not None:
+                d = d.replace(tzinfo=tz)
+            if ac.in_window(d, window):
+                files.append(path)
     if not files:
+        if files_all:
+            return None, ("找到 {} 个 scan_*.json，但没有一个落在本周窗口内，"
+                          "分母缺失（这是正确行为：分子按周，分母也必须按周）"
+                          .format(len(files_all)))
         return None, "logs/scan_*.json 不存在（A1 扫描属 Phase 2，尚未上线），分母缺失"
 
     # 预期形态：{"by_segment": {"A": <扫描命中数>, ...}}
@@ -157,7 +198,7 @@ def main():
             "两个日期任一缺失的行计入分母、不计入分子。".format(fill_days))
 
         # ---- 比率：分母为零一律 null ----
-        scan_totals, scan_note = read_scan_totals(list(by_seg.keys()))
+        scan_totals, scan_note = read_scan_totals(list(by_seg.keys()), window, tz)
         if scan_note:
             caveats.append("信号命中率全部为 null：" + scan_note)
 
