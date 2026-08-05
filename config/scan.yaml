@@ -23,9 +23,17 @@
 
 meta:
   version: "0.1"
-  status: "draft_unreviewed"      # 待 Shawn 审核；审核通过后改 approved 并记 reviewed_at
+  status: "approved"
   drafted_at: "2026-08-04"
+  reviewed_by: "Shawn"
+  reviewed_at: "2026-08-04"
   drafted_for: "Build Spec · Phase 2：A1 感知 v0.1"
+  # ⚠️ 与 segments.yaml 同一句话：**放行不等于有出处**。
+  #    Shawn 2026-08-04 的裁决是「按现状跑，用首轮数据校准」，不是「这些内容找到出处了」。
+  #    下面所有【推演待校准】标记**一律保留**，首轮实跑后逐条回头校准。
+  #    具体放行范围：signal_intent（含 default）、job_change（保持观察期）、
+  #    query.type_markers、probe.category_answer_rule、serp.review_site_domains、
+  #    apollo.single_side_note_template。
 
 # ---------------------------------------------------------------------------
 # 一、每轮上限与频率（红线，playbook 与脚本都读这里）
@@ -131,6 +139,52 @@ probe:
   questions_per_set: 5
   # 【出处：Phase 0 核对清单 探测记录库 §4 问题集 select 两个选项逐字】
   question_sets: ["任务式 pain feeler", "评估式 decision maker"]
+
+  # ------------------------------------------------------------------------
+  # 探测问题定稿（2026-08-04 Shawn 逐条审核通过）
+  #
+  # 这里是**机器可读的唯一来源**。prompts/probe_questions_v1.md 是审核记录与理由，
+  # 两处内容若不一致以本节为准——避免同一份问题存两份而漂移。
+  #
+  # 运行时 playbook 从 **Query 库**读问题（spec §四 明文），不从本节读；
+  # 本节只是 scripts/probe_questions_sync.py 往 Query 库灌数据的源头。
+  # ------------------------------------------------------------------------
+  questions:
+    "任务式 pain feeler":
+      - text: "how to find a clip in hours of footage"
+        provenance: "spec §一.3 逐字给出的示例"
+      - text: "search video by spoken words"
+        provenance: "spec §一.3 逐字给出的示例"
+      - text: "how to search a video library by what was said in it"
+        provenance: "【推演待校准】由 segments.yaml:B.linkedin_keywords 的 searchable transcript 展开"
+      - text: "how to find an old brand video we already made"
+        provenance: "【推演待校准】由 segments.yaml:A.linkedin_keywords 的 where did we save that clip 展开"
+      - text: "how to pull highlights from hours of livestream recordings"
+        provenance: "【推演待校准】由 segments.yaml:D.livestream highlights 与 E.tournament footage 合并展开"
+    "评估式 decision maker":
+      - text: "best video search tool"
+        provenance: "spec §一.3 逐字 + 同时是 §一.2 的首批 keyword"
+      - text: "twelve labs alternative"
+        provenance: "spec §一.3「具体竞品 alternative」形态 + 竞品名由 Shawn 2026-08-04 给出。
+                     2026-08-04 裁决用官方两词写法 twelve labs，不用 twelvelabs"
+      - text: "chatcut alternative"
+        provenance: "spec §一.3「具体竞品 alternative」形态 + 竞品名由 Shawn 2026-08-04 给出"
+      - text: "how much does video search software cost"
+        provenance: "【推演待校准】spec §一.3 只写了「pricing 等」，具体问法是推的"
+      - text: "best AI video asset management software"
+        provenance: "【推演待校准】由 §一.2 首批 keyword video asset management AI 转成评估式问法"
+    # 2026-08-04 Shawn 同意砍掉：video search tool comparison for marketing teams
+    # （三条推演里出处最弱，且与「best video search tool」检索意图重叠）
+
+  # 两套问题写进 Query 库时的字段取值。
+  # 【出处：Phase 0 核对清单 Query 库 §2 类型 与 §3 面向角色 的 select 选项逐字】
+  question_set_query_fields:
+    "任务式 pain feeler":
+      类型: "痛点级任务式"
+      面向角色: "pain feeler"
+    "评估式 decision maker":
+      类型: "评估式"
+      面向角色: "decision maker"
 
   # 引用判定。【出处：spec §四「回答正文出现品牌名即记引用」逐字】
   citation_rule: "回答正文出现品牌名即记引用"
