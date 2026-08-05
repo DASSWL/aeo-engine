@@ -35,6 +35,18 @@ meta:
   reviewed_at: "2026-08-04"
   source_registry: "Mega Doc Appendix D（12 segment 注册表）"
 
+# 定稿后的修订记录。每条必须写清「改了什么、依据是什么、谁同意的」。
+# 纪律：本文件是 Shawn 逐条审过的，任何改动都要留档，不许静默改值。
+changelog:
+  - date: "2026-08-04"
+    by: "Shawn 同意，Claude Code 执行"
+    what: "A.apollo 的 industries 去掉 marketing & advertising；keywords 由
+           b2b marketing / brand content / demand generation
+           换成 saas / enterprise software / in-house marketing"
+    why: "首次真跑 apollo_poll 实测：A 段 41 家公司 0 配对，且捞上来的全是营销
+          代理商（供给侧），而 A 段要的是品牌方市场部（需求侧）。详见该节注释。"
+    evidence: "logs/apollo_poll_2026-08-04.json"
+
 # 全局默认：各 segment 未覆盖时回落到这里。
 # 出处：Concept 页 A1「招聘扫描关键词（video producer / video editor 等）」。
 defaults:
@@ -73,10 +85,27 @@ segments:
       - "r/B2BMarketing"
       - "r/videography"
       - "r/editors"
-    apollo:                 # 草稿：区间与行业未在 Apollo 实测
-      industries: ["computer software", "information technology & services", "marketing & advertising"]
+    apollo:
+      # ⚠️ 2026-08-04 修订（Shawn 同意）。修订依据是**实测证据**，不是推演：
+      #    首次真跑 apollo_poll 时，A 段 41 家公司里 0 配对，且捞上来的是
+      #    TriMark Digital / Abstrakt Marketing Group / Torpedo / Spur Reply /
+      #    The WhyKingz —— 全是**营销代理商**。
+      #    而 A 段要的是「B2B 公司市场部」即**品牌方**；代理商是同行与供应商，
+      #    不是买家（四份 playbook 的命中判定里本来就写了排除供应商）。
+      #    根因：
+      #      * industries 里的 "marketing & advertising" 字面上就是代理商所在行业
+      #      * keywords 的 "b2b marketing" / "demand generation" 是**代理商用来
+      #        描述自己业务**的词，品牌方市场部不这么自述
+      #    B–E 段能出配对，说明条件机制本身没问题，是 A 段这几个值选错了方向。
+      #
+      #    改后仍需实测校准：新 keywords 同样是推演的，只是方向从「供给侧」
+      #    掰回「需求侧」。下一轮跑完要看捞上来的还是不是代理商。
+      industries: ["computer software", "information technology & services"]
       employee_count: "51-1000"
-      keywords: ["b2b marketing", "brand content", "demand generation"]
+      keywords: ["saas", "enterprise software", "in-house marketing"]
+      # 修订前的原值（留档备查，便于回滚与对照）：
+      #   industries: ["computer software", "information technology & services", "marketing & advertising"]
+      #   keywords:   ["b2b marketing", "brand content", "demand generation"]
     titles:
       pain_feeler:
         - "Content Marketing Manager"

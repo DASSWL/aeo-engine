@@ -15,6 +15,13 @@ booked_floor: 2
 booked_floor_consecutive_weeks: 2
 
 # 水箱周入箱定额。注意：这是防膨胀的上限，不是要冲的指标（见 Concept 页 A6 约束）
+#
+# 2026-08-04 Shawn 裁决：本值的执行力度是**软参考**，不是硬闸。
+#   Phase 2 的扫描与接入脚本**不会**因为达到本值而截断命中——真截断了就再也
+#   不知道真实填补速度是多少，而填补速度是砍留 segment 的判据。
+#   实际生效的硬闸是 config/scan.yaml 的 caps.per_segment_per_round（每段每轮 10 条）。
+#   超出本值不报警、不阻断，只在周五复盘里如实呈现。
+#   （值本身未改动，本次只补注释说明口径。见 scan.yaml: caps.weekly_inbox_quota_enforcement）
 weekly_inbox_quota: 15
 
 # ---------------------------------------------------------------------------

@@ -47,6 +47,21 @@ caps:
   # 【出处：config/thresholds.yaml 的 weekly_inbox_quota（当前 15）】
   weekly_inbox_quota_ref: "config/thresholds.yaml:weekly_inbox_quota"
 
+  # 周定额的执行力度。【出处：Shawn 2026-08-04 裁决 —— 软参考】
+  #
+  # 起因：spec 自己的两个数打架。每 segment 每轮上限 10（×5 段 = 50 行），
+  #       而周入箱定额是 15——光 Apollo 一条链跑满就能超定额一倍多，
+  #       LinkedIn 与 Reddit 还没算。2026-08-04 首次全 segment 实测规划了 38 行。
+  #
+  # 裁决：**软参考**。
+  #   * 脚本与 playbook **不因为定额而截断**任何一条命中——真截断了就再也不知道
+  #     真实填补速度是多少，而填补速度正是砍留 segment 的判据（落地计划 J0）。
+  #   * 唯一生效的硬闸是 per_segment_per_round（每 segment 每轮 10 条）。
+  #   * 超出定额不报警、不阻断，只在周五复盘里如实呈现「本周入箱 N vs 定额 15」。
+  #     （prompts/friday_review.md §② 本来就写着「定额是上限不是指标，
+  #      超了才是问题，不足不算警报」——本裁决与之一致。）
+  weekly_inbox_quota_enforcement: "soft"
+
 frequency:
   # 频率写死，不得加频。【出处：Phase 2 spec §二 硬约束逐字】
   linkedin_weekly: "每周一次（周批扫）"
