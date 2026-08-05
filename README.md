@@ -229,3 +229,126 @@ python3 scripts/scan_log_append.py --show 2026-08-10    # 只看不写
 5. **Apollo 行业筛选是降级的**：Apollo 要 `organization_industry_tag_ids`（内部 ID），
    `segments.yaml` 写的是行业名文本，脚本把行业名并进了关键词标签。
    命中面更宽也更糊，拿到 API key 后首轮要专门看这条。
+
+---
+
+# Phase 3 运行手册（J0–J4）
+
+依据：[Build Spec · Phase 3](https://app.notion.com/p/3b2059d9693381e988a4f460945a6bc7)。
+落成日期 2026-08-05。本节只讲 Phase 3 新增的东西；Phase 1/2 的两个定时任务与脚本一行未动。
+
+## 零发送红线
+
+Phase 3 是发信基础设施第一次进场，所以三条红线写死在 `config/outreach.yaml` 的
+`zero_send` 节，三个值必须全为 `true`，任一为 `false` 时 `draft_runner` 直接拒绝运行：
+
+| 红线 | 实现 |
+|---|---|
+| 草稿只推群 | 脚本只写 `outbox/*.md`，收件人永远是 Telegram group `-5261250225` |
+| sequence 暂停建 | `apollo_sequence.py` 以 `active=false` 建，且不提供任何激活参数 |
+| 不调发送类 API | 脚本不碰 Apollo `send_now`、不直连 SMTP、不直连 Telegram Bot API |
+
+**sequence 的启动键永远在 Apollo 界面由真人按。**
+
+## 新增脚本
+
+| 脚本 | 干什么 | 默认行为 |
+|---|---|---|
+| `skill_check.py` | 解析真 skill 并暂存进 `.claude/skills/` 供 `claude -p` 加载 | 只报告；`--stage` 才暂存 |
+| `draft_runner.py` | J4 待触达队列 → 草稿请求包 → Telegram 消息 | dry-run |
+| `receipt_apply.py` | 「sent 行ID」回执 → 水箱行状态改「触达中」 | dry-run |
+| `apollo_sequence.py` | 建 `seq_A_v1`（暂停态） | dry-run |
+| `reply_poll.py` | Apollo sequence 回流轮询 | dry-run |
+| `j0_market_definition.py` | J0 骨架：win/loss 提及计数 → 竞替名单 diff | dry-run |
+| `j1_evidence.py` | J1 骨架：五道硬校验闸门 | dry-run |
+| `j3_channel_presence.py` | J3 骨架：痛点帖回答草稿 | dry-run |
+
+纪律与 Phase 2 完全一致：**不带参数跑 = 只算不写；写库必须显式 `--commit`。**
+
+## 定时任务（Phase 3 新增两个）
+
+| 任务 | cron | agent | delivery |
+|---|---|---|---|
+| `j4_draft_runner` | `30 8 * * *` @ America/Los_Angeles | vivu-sales | `mode: none` → telegram `-5261250225` |
+| `j4_reply_poll` | `45 8 * * *` @ America/Los_Angeles | vivu-sales | `mode: none` → 同上 |
+
+排在 Phase 1 的 `daily_sla`（08:00）之后，符合 spec「回流轮询随 daily_sla 之后运行」。
+
+`delivery.mode` 必须是 `none`。`openclaw cron create` 会默认给 `announce`，
+建完要用 `openclaw cron edit <id> --no-deliver` 改掉——`announce` 会把 agent 每次
+最终回复都推到群里，没有草稿的日子也会推一条，违反「无内容不打扰」。
+
+## unset wrapper（必须复用，不是可选项）
+
+`run_draft_runner.sh` 与 `run_reply_poll.sh` 开头都有：
+
+```bash
+unset ANTHROPIC_API_KEY
+unset ANTHROPIC_AUTH_TOKEN
+```
+
+理由见 Phase 1 §八①：OpenClaw 会把 `openclaw.json` 里的 `env.ANTHROPIC_API_KEY`
+注入派生的每一个进程，`claude` 见到它就优先用它而不是订阅登录，于是每天跑一次
+草稿就每天按 token 计费一次。Phase 1 的红字提醒「凡经 OpenClaw 派生、又会调用
+claude CLI 的其他自动化，都存在同样问题」——J4 就是那个「其他自动化」。
+
+## skill 产线
+
+草稿正文由 `claude -p` 加载**真 skill** 产出，不用自写 prompt 冒充。
+
+| skill | 状态 | 影响 |
+|---|---|---|
+| `ai-writing-guideline` | ✅ 可用 | — |
+| `vivu-outreach` | ✅ 可用 | — |
+| `vivu-linkedin-rewriter` | ❌ **全机器不存在** | `linkedin_post` 环节 refuse，草稿留 `[SKILL MISSING]` 占位 |
+
+两个 `--add-dir` 相关的坑，改之前先读 `config/outreach.yaml` 的注释：
+
+1. `ai-writing-guideline` 是**指针 skill**，规则在仓库外的 `ai_writings.md` 里。
+   不给 `--add-dir` 就只能用它自述的 fallback 子集，而这件事只会出现在输出第一行，很容易漏看。
+2. prompt 必须走 **stdin**，不能当位置参数——`--add-dir` 是可变长选项会把它吞掉。
+
+## 三段式为什么这么切
+
+`draft_runner` 是 plan（纯 Python）→ claude → assemble（纯 Python）。
+窗口判定、闸门、去重、模板全部可离线复算与回归测试，LLM 只负责写英文。
+它挂了不会让队列算错。
+
+## 队列口径
+
+「待触达」的窗口判定**不依赖 Notion 视图排序**——Phase 0 已记那个视图表达不了
+「剩余时限」，跨 24h/48h 混排会偏。真正的排序在 `draft_runner.py:build_queue` 里算，
+且与 `sla_check.py` 规则一、二逐条对齐：
+
+- 来源 = referral → 基准「入箱日期」+ `referral_hours`
+- 信号类型 = signal → 基准「触达时限起算」+ `signal_hours`
+
+两个脚本对「同一行什么时候到期」必须给同一个答案，否则会出现 sla 报了警而 J4 不出草稿。
+
+## 回执协议
+
+规则写在 sales agent 的 `AGENTS.md`（`~/.openclaw/workspace-vivu-sales/AGENTS.md` 末节）。
+三条同时满足才算数：群 `-5261250225` + 发送者 `6529461266` + 整条正文就是 `sent <行ID>`。
+命中后 agent 只许调 `receipt_apply.py --commit`，不许自己拼 Notion 请求。
+
+**这条规则允许漏，不允许错。** 漏掉的行次日 `daily_sla` 会因超时报出来由真人补。
+
+⚠️ **端到端未实测**：需要真人在群里真发一条回执才能验证。见下方待办。
+
+## J0 / J1 / J3 当前是无燃料状态
+
+三个骨架都能跑、都会正确拒绝、都会说清缺什么。当前拒绝原因：
+
+- **J0** —— win/loss 库 0 行，未达触发线 5 条。还差 5 条对话。
+- **J1** —— 无证据请求被闸门①拒；对比页被闸门②拒（win/loss 0 < 5 且
+  `competitor_list_converged = false`）。
+- **J3** —— 台账 0 条已签发资产、`facts.json` 0 条已确认 benchmark，两个事实来源都空。
+
+这是**正确行为**，不是缺陷。没有燃料时产出内容只能靠编，而编造正是这些闸门要防的。
+
+## J2 在另一个仓库
+
+J2 的东西全部落在 `~/project/vivu_web`（vivu.ai 站点仓库），三个分支已推、
+**均未合并**：`aeo/j2-content-contract`、`aeo/j2-demo-request-path`、`aeo/j2-lint-redtest`。
+`j3_channel_presence.py` 读的 `data/facts.json` 在第一个分支上——那个 PR 没合并前，
+本机 vivu_web 工作树得 checkout 到该分支，J3 才读得到事实层。
