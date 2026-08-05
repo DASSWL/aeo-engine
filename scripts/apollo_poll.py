@@ -97,6 +97,69 @@ def call_apollo(session, base_url, path, header_name, api_key, payload):
 # 分组与配对
 # --------------------------------------------------------------------------
 
+def norm_org(name):
+    return " ".join((name or "").split()).lower()
+
+
+def complete_pairs(session, a_cfg, api_key, seg_body, segment, people,
+                   max_companies, max_calls):
+    """两段式配对的第二段：给单边公司补齐缺失那一侧。
+
+    输入的 people 是发现阶段（每段两次搜索）的结果。做三件事：
+      1. 按公司分组，看每家公司手上有哪几侧角色
+      2. 两侧都有的公司**不再发请求**——已经能配对了，多查一次纯属浪费额度
+      3. 只对单边公司发定向搜索（q_organization_name + 缺失那侧的 title），
+         直到凑够 max_companies 家已配对公司，或用完 max_calls 次调用
+
+    返回 (补齐后的 people, 用掉的调用数, 补齐过程统计)。
+    """
+    titles = seg_body["titles"]
+    cond = {"segment_conditions": seg_body["apollo"]}
+
+    by_org = {}
+    for p in people:
+        slot = by_org.setdefault(p["org_id"], {"公司": p["公司"], "roles": {}})
+        slot["roles"].setdefault(p["role"], []).append(p)
+
+    both = [k for k, v in by_org.items() if len(v["roles"]) >= 2]
+    singles = [k for k, v in by_org.items() if len(v["roles"]) == 1]
+
+    added, calls, attempted, succeeded = [], 0, 0, 0
+    for org_id in singles:
+        if len(both) + succeeded >= max_companies or calls >= max_calls:
+            break
+        slot = by_org[org_id]
+        have = list(slot["roles"].keys())[0]
+        missing = ROLE_DM if have == ROLE_PAIN else ROLE_PAIN
+        want = titles["decision_maker"] if missing == ROLE_DM else titles["pain_feeler"]
+        if not slot["公司"]:
+            continue
+        attempted += 1
+        body = call_apollo(session, a_cfg["base_url"], a_cfg["people_search_path"],
+                           a_cfg["auth_header"], api_key,
+                           build_payload(cond, want, a_cfg["per_page"],
+                                         org_name=slot["公司"]))
+        calls += 1
+        target = norm_org(slot["公司"])
+        for raw in (body.get("people") or []) + (body.get("contacts") or []):
+            rec = person_record(raw, segment, missing)
+            # q_organization_name 是模糊匹配，会带回别家公司的人。
+            # 只认公司名归一化后完全相同的——宁可补不上，也不能把别家的人配成一对。
+            if norm_org(rec["公司"]) == target:
+                added.append(rec)
+                succeeded += 1
+                break
+
+    return people + added, calls, {
+        "orgs_from_discovery": len(by_org),
+        "orgs_both_sides_at_discovery": len(both),
+        "orgs_single_side_at_discovery": len(singles),
+        "completion_calls": calls,
+        "completion_attempted": attempted,
+        "completion_succeeded": succeeded,
+    }
+
+
 def person_record(raw, segment, role):
     org = raw.get("organization") or {}
     return {
@@ -340,10 +403,22 @@ def main():
                 calls += 1
                 for raw in (body.get("people") or []) + (body.get("contacts") or []):
                     people.append(person_record(raw, entry["segment"], req["role"]))
+            # 两段式第二段：给单边公司补齐缺失角色（backfill 路径本来就是定向搜索，
+            # 已经是「一家公司查两侧」，不需要再补）。
+            completion = None
+            if entry["kind"] == "segment_search" and a_cfg.get("pairing_mode") == "two_phase":
+                people, extra, completion = complete_pairs(
+                    session, a_cfg, api_key, seg_cfg["segments"][entry["segment"]],
+                    entry["segment"], people, max_companies,
+                    a_cfg["max_completion_calls_per_segment"])
+                calls += extra
+
             # 公司数上限交给 group_and_pair 在分组之后施加，这里不做任何预截断。
             limit = max_companies if entry["kind"] == "segment_search" else None
             groups, st = group_and_pair(people, entry["segment"], caps,
                                         a_cfg["single_side_note_template"], limit)
+            if completion:
+                st.update(completion)
             key = "{}:{}".format(entry["kind"], entry.get("company") or entry["segment"])
             stats[key] = st
             for grp in groups:
