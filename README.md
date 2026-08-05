@@ -381,7 +381,16 @@ Netlify 环境变量已由真人配置完毕并实测通过，不需要再查一
 
 ## J2 在另一个仓库
 
-J2 的东西全部落在 `~/project/vivu_web`（vivu.ai 站点仓库），三个分支已推、
-**均未合并**：`aeo/j2-content-contract`、`aeo/j2-demo-request-path`、`aeo/j2-lint-redtest`。
-`j3_channel_presence.py` 读的 `data/facts.json` 在第一个分支上——那个 PR 没合并前，
-本机 vivu_web 工作树得 checkout 到该分支，J3 才读得到事实层。
+J2 的东西全部落在 `~/project/vivu_web`（vivu.ai 站点仓库）。
+
+| PR | 内容 | 状态 |
+|---|---|---|
+| #2 `aeo/j2-content-contract` | 内容契约 + facts.json + CI lint + 发布回写 | ✅ 已合并 2026-08-05 |
+| #3 `aeo/j2-demo-request-path` | 技术底座审计 + 预约 URL 单一出处 + /contact 次级入口 | ✅ 已合并 2026-08-05 |
+| #4 `aeo/j2-lint-redtest` | 红灯测试 | 🚨 **永不合并**，验完即关即删 |
+
+`j3_channel_presence.py` 读的 `data/facts.json` 已随 #2 进 main，
+vivu_web 工作树在 main 上就能读到事实层，不再需要 checkout 到分支。
+
+技术底座 checklist 六项全部具备验收条件（详见 vivu_web 的
+`docs/aeo-technical-foundation.md`），等真人验收后该职能即可退役。
