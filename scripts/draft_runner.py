@@ -447,6 +447,7 @@ def main():
 
             written, unparsed = [], []
             state = load_cooldown()
+            seen_files = {}
             for it in plan["drafts"]:
                 body = bodies.get(it["id"])
                 if not body:
@@ -454,7 +455,20 @@ def main():
                                      "reason": "claude 输出里没有这一条的 DRAFT 包"})
                     continue
                 msg = render_message(it, body, cfg)
-                fname = "j4_draft_{}_{}.md".format(now.strftime("%Y-%m-%d"), it["id"][:8])
+                # 文件名必须用**完整** id，不能截断。
+                # 2026-08-05 首次自动运行踩到：原实现取 id[:8]，而同一批写入的
+                # Notion page ID 前 8 位完全相同（ID 按时间有序，那天 50 行全是
+                # 3b3059d9 开头）。10 条草稿写成同一个文件互相覆盖，只剩最后一条，
+                # 群里当天只收到 1 条，另外 9 条静默消失——脚本还报「装配 10 条」。
+                fname = "j4_draft_{}_{}.md".format(
+                    now.strftime("%Y-%m-%d"), it["id"].replace("-", ""))
+                if fname in seen_files:
+                    # 防线：文件名撞车宁可整体失败，也不要再静默覆盖一次。
+                    raise RuntimeError(
+                        "草稿文件名冲突：{} 同时来自水箱行 {} 与 {}。"
+                        "覆盖会让其中一条草稿静默消失。".format(
+                            fname, seen_files[fname], it["id"]))
+                seen_files[fname] = it["id"]
                 if sc.resolve_mode(args) == "commit":
                     ac.write_outbox(fname, msg)
                     state[it["id"]] = now.isoformat()
