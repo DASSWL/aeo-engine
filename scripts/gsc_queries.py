@@ -26,19 +26,29 @@ Shawn 2026-08-05 指定新建。六条链之外的第七条，也是唯一给**�
 而那正是 Query 库整库在讲的东西。那不是「没需求」的证据，是「我们没内容」的证据。
 两者混同就是拿缺席当反证。要看「市场有需求但我们不沾边」的词，那是 Keyword Planner 的活。
 
-凭据（四项，缺任一即以退出码 2 退出，不降级不造假）：
+两条路径（同 keyword_volume 的形态：API 路径留着，先用真人导出的 CSV 跑通）：
+  * API 路径（--source api）：需要下面三项 OAuth 凭据
+  * 降级路径（--source csv，**默认**）：真人从 GSC 界面 EXPORT 下来的
+    Queries.csv 或整包 .zip 放 data/gsc/，本脚本解析。零凭据。
+
+凭据（API 路径用；缺任一即以退出码 2 退出，不降级不造假）：
     GSC_CLIENT_ID / GSC_CLIENT_SECRET / GSC_REFRESH_TOKEN   OAuth2
     GSC_SITE_URL                                            可选，缺则用 config 的 api.site_url
 
 用法：
-    python3 scripts/gsc_queries.py            # dry-run，打印候选与品牌分布
+    python3 scripts/gsc_queries.py            # dry-run（默认 csv 路径），打印候选与品牌分布
+    python3 scripts/gsc_queries.py --source api   # 走 API（需凭据）
     python3 scripts/gsc_queries.py --review    # 同时把审核清单写进 outbox
     python3 scripts/gsc_queries.py --commit    # 真写 Query 库（需 config approved）
 """
 
+import csv
+import glob
+import io
 import os
 import re
 import sys
+import zipfile
 from datetime import datetime, timedelta
 from difflib import SequenceMatcher
 
@@ -110,6 +120,103 @@ def fetch_rows(session, token, site_url, api_cfg, tz):
             break
         start_row += len(rows)
     return out, start.isoformat(), end.isoformat()
+
+
+# ---------------------------------------------------------------------------
+# 降级路径：解析 GSC 界面导出的 CSV
+#
+# 为什么需要它：拿 OAuth 凭据要过 Google Cloud 建项目 / 配同意屏那几步，
+# 是真人动作。而品牌判定的阈值必须先跑在**全量真实 query** 上才知道准不准——
+# 那恰恰是 approved 之前该看的东西。等凭据就等于把校准无限后推。
+# 同 Phase 2 对 keyword_volume 的处置：API 路径留着，先用 CSV 跑通。
+#
+# ⚠️ 导出的 CSV **带着界面当时的过滤器**。要校准品牌判定就必须导**不带过滤**的全量，
+#    否则等于拿已经被 Google 滤过一遍的样本去验我们自己的滤器。
+# ---------------------------------------------------------------------------
+
+GSC_QUERY_COLUMNS = ("top queries", "query", "queries", "热门查询", "查询")
+GSC_NUM_COLUMNS = {
+    "clicks": ("clicks", "点击次数", "点击"),
+    "impressions": ("impressions", "展示次数", "曝光"),
+    "position": ("position", "average position", "平均排名", "排名"),
+}
+
+
+def _pick_col(fieldnames, candidates):
+    for name in fieldnames or []:
+        if (name or "").strip().lower().lstrip("\ufeff") in candidates:
+            return name
+    return None
+
+
+def _num(raw):
+    """'1,234' → 1234；'6.2%' → 6.2；空 → 0。认不出就抛，不猜。"""
+    s = (raw or "").strip().replace(",", "").replace("%", "")
+    if not s:
+        return 0
+    try:
+        f = float(s)
+    except ValueError:
+        raise ValueError("认不出的数值：{!r}".format(raw))
+    return int(f) if f.is_integer() else f
+
+
+def _csv_texts(path):
+    """返回 [(来源名, 文本)]。.zip 就从包里挑 query 那份，.csv 直接读。"""
+    if path.lower().endswith(".zip"):
+        out = []
+        with zipfile.ZipFile(path) as z:
+            for n in z.namelist():
+                if not n.lower().endswith(".csv"):
+                    continue
+                # GSC 的包里有 Queries / Pages / Countries / Devices / Dates / Filters
+                # 六份，只要 query 那份。认名字，不靠顺序。
+                base = os.path.basename(n).lower()
+                if "quer" not in base and "查询" not in base:
+                    continue
+                out.append(("{}!{}".format(os.path.basename(path), n),
+                            z.read(n).decode("utf-8-sig")))
+        if not out:
+            raise ValueError("{} 里没有名字含 quer 的 CSV——"
+                             "GSC 导出包应含 Queries.csv".format(os.path.basename(path)))
+        return out
+    with open(path, "rb") as fh:
+        return [(os.path.basename(path), fh.read().decode("utf-8-sig"))]
+
+
+def parse_csv_dir(csv_dir):
+    """解析 data/gsc/ 下的 CSV/ZIP → 与 API 同形状的 rows。"""
+    paths = sorted(glob.glob(os.path.join(csv_dir, "*.csv")) +
+                   glob.glob(os.path.join(csv_dir, "*.zip")))
+    rows, report = [], []
+    for path in paths:
+        try:
+            for name, text in _csv_texts(path):
+                reader = csv.DictReader(io.StringIO(text))
+                qcol = _pick_col(reader.fieldnames, GSC_QUERY_COLUMNS)
+                if not qcol:
+                    raise ValueError("找不到 query 列，表头是 {}".format(reader.fieldnames))
+                cols = {k: _pick_col(reader.fieldnames, v)
+                        for k, v in GSC_NUM_COLUMNS.items()}
+                n = 0
+                for rec in reader:
+                    q = (rec.get(qcol) or "").strip()
+                    if not q:
+                        continue
+                    clicks = _num(rec.get(cols["clicks"])) if cols["clicks"] else 0
+                    impr = _num(rec.get(cols["impressions"])) if cols["impressions"] else 0
+                    pos = _num(rec.get(cols["position"])) if cols["position"] else 0
+                    # 转成与 API 完全相同的形状，下游一行都不用改
+                    rows.append({"keys": [q], "clicks": clicks, "impressions": impr,
+                                 "ctr": (clicks / impr) if impr else 0,
+                                 "position": pos})
+                    n += 1
+                report.append({"file": name, "query_column": qcol,
+                               "num_columns": cols, "parsed_rows": n, "error": None})
+        except (OSError, ValueError, zipfile.BadZipFile) as exc:
+            report.append({"file": os.path.basename(path), "parsed_rows": 0,
+                           "error": str(exc)})
+    return rows, report
 
 
 # ---------------------------------------------------------------------------
@@ -304,6 +411,10 @@ def main():
     parser = sc.base_parser(__doc__.splitlines()[0])
     parser.add_argument("--review", action="store_true",
                         help="把审核清单写进 outbox（由 outbox_sweep 转发）。不写 Notion")
+    parser.add_argument("--source", choices=("csv", "api"), default="csv",
+                        help="csv=解析 data/gsc/ 的 GSC 导出（默认，零凭据）；"
+                             "api=Search Console API（需 OAuth 三项）")
+    parser.add_argument("--csv-dir", default=None, help="默认 data/gsc/")
     args = parser.parse_args()
     mode = sc.resolve_mode(args)
 
@@ -320,7 +431,7 @@ def main():
         site_url = env.get("GSC_SITE_URL") or cfg["api"]["site_url"]
 
         missing = [k for k in CRED_KEYS if not env.get(k)]
-        if missing:
+        if args.source == "api" and missing:
             sc.missing_credential(
                 SCRIPT, missing,
                 "Search Console API 的 OAuth 凭据不在 .env（缺 {} 项：{}）。"
@@ -335,9 +446,17 @@ def main():
                                 "row_limit": cfg["api"]["row_limit"],
                                 "dimensions": cfg["api"]["dimensions"]}})
 
-        session = requests.Session()
-        token = access_token(session, env)
-        rows, start, end = fetch_rows(session, token, site_url, cfg["api"], tz)
+        if args.source == "api":
+            session = requests.Session()
+            token = access_token(session, env)
+            rows, start, end = fetch_rows(session, token, site_url, cfg["api"], tz)
+            files_report = None
+        else:
+            csv_dir = args.csv_dir or os.path.join(ac.DATA_DIR, "gsc")
+            os.makedirs(csv_dir, exist_ok=True)
+            rows, files_report = parse_csv_dir(csv_dir)
+            # 窗口由导出时界面上选的日期决定，文件里带不出来——不编。
+            start = end = "见导出文件（CSV 不含日期范围）"
 
         kept, branded, dropped = screen(rows, cfg, scan_cfg)
 
@@ -381,9 +500,17 @@ def main():
                                 "impressions": it["impressions"],
                                 "clicks": it["clicks"], "position": it["position"]})
 
-        thr = cfg["brand"]["fuzzy_threshold"]
+        # 「接近阈值」要按每条各自的档位算——阈值 2026-08-05 改成按长度分档之后，
+        # 拿单一阈值去比会把短串和长短语混在一起，算出来的 borderline 没有意义。
+        bcfg = cfg["brand"]
+        def _thr(q):
+            return (bcfg["short_threshold"]
+                    if len(despace(q)) <= bcfg["short_max_chars"]
+                    else bcfg["long_threshold"])
         borderline = sorted(
-            [b for b in branded if b["brand_score"] < thr + 0.08],
+            [b for b in branded
+             if b["brand_hit"] and not str(b["brand_hit"]).startswith(("contains:", "force"))
+             and b["brand_score"] < _thr(b["query 文本"]) + 0.08],
             key=lambda x: -x["impressions"])[:15]
 
         result = {
@@ -391,9 +518,15 @@ def main():
             "wrote_notion": mode == "commit",
             "config_status": status,
             "generated_at": datetime.now(tz).isoformat(),
+            "source": args.source,
+            "files": files_report,
             "site_url": site_url,
-            "window": {"start": start, "end": end,
-                       "days": cfg["api"]["lookback_days"]},
+            "window": ({"start": start, "end": end,
+                        "days": cfg["api"]["lookback_days"]}
+                       if args.source == "api"
+                       else {"start": start, "end": end,
+                             "note": "CSV 路径的窗口取决于导出时界面选的日期范围，"
+                                     "文件里带不出来。要确认请看导出时的界面。"}),
             "counts": {
                 "api_rows": len(rows),
                 "branded": len(branded),

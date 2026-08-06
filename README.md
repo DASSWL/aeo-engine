@@ -1115,3 +1115,86 @@ exit=2  status=missing_credential  missing=[GSC_CLIENT_ID, GSC_CLIENT_SECRET, GS
 `min_impressions: 3` 会滤掉 `premiere pro beat detection`（1 次曝光，但**排名 4.0**）。
 曝光低而排名高的词，往往是最精准的长尾——这个阈值把它们一起滤掉了。
 首轮真实跑完之后对着 `dropped` 列表调。
+
+## GSC 降级路径与首轮真实 dry-run（2026-08-05）
+
+等 OAuth 凭据就等于把品牌判定的校准无限后推——而那恰恰是 `approved` 之前必须看的。
+所以照 `keyword_volume` 的形态加了降级路径：`--source csv`（**默认**），
+解析真人从 GSC 界面 EXPORT 的 `.zip` / `.csv`，零凭据。
+`--source api` 仍在，缺凭据时退出码 2。
+
+导出包里有 7 个 CSV，脚本只认名字含 `quer` 的那份，不靠顺序。
+
+⚠️ **导出必须不带任何过滤器。** 带着 `-vivu` 之类的过滤导出，
+等于拿 Google 已经滤过一遍的样本去验我们自己的滤器。
+
+### 首轮结果：机制通了，但产出 75% 是第三方品牌
+
+```
+745 行 → 739 条 query
+  判为我方品牌（含拼写变体） 540
+  过滤掉                    163（曝光 <3 的 127 条、单 token 34 条、login 2 条）
+  待写入                     30（+ 被 max_per_run 截下 6）
+```
+
+**branded search 基线**（Concept A7 度量项，此前无人计算）：
+
+| | query 数 | 点击 | 曝光 |
+|---|---:|---:|---:|
+| 品牌 | 540 | 9,644 | 116,566 |
+| 非品牌 | 199 | **14** | 1,722 |
+
+**品牌占点击 99.9%、占曝光 98.5%。** 非品牌 16 个月总共只带来 14 次点击。
+
+### ⛔ 30 条候选里只有 5 条是真的 query
+
+其余 25 条是**别人家的品牌名**——我们排在这些词上，是因为域名/品牌长得像：
+
+```
+viyou ai official website / viyou ai video generator / viyou ai online …（同一家 6 条）
+vuvido style / vuvido app / vuvido .com     visla ai      vrew video editor
+vidifyai studio    vibio ai    virio ai    vibro ai    viloi ai
+vidmake tutorial a complete guide to mastering video creation
+```
+
+真的 query 只有这 5 条（加上被截下的 `ai that cuts video` / `ai powered video editor` /
+`ai video online` / `xyz video generator`，共 9 条）：
+
+```
+video editing made easy            27 曝光 / 排名 88.6
+interactive fan videos             12 曝光 / 排名 95.5
+ai-powered video editing software   8 曝光 / 排名 91.6
+ai assistant video editor           8 曝光 / 排名 92.1
+ai video editing studio             7 曝光 / 排名 89.9
+```
+
+**根因**：品牌过滤器只认**我们自己**的品牌。GSC 里塞满了**别人**的品牌，
+因为我们靠相似域名排在那些词上。这一条在人工看那一眼时看不出来——
+那时只翻了前 10 行，全是我方品牌。
+
+### 这批第三方品牌名不是垃圾，是放错了地方
+
+`viyou / vuvido / visla / vrew / vidify / vibio / vidmake` —— 这是一份
+**「市场把我们和谁归在一起」**的名单，正是 J0 竞替名单要的东西。
+但 `gates.yaml: competitor_list_converged = false`，且 Concept 明文
+「竞替名单没有从真实对话中收敛出来之前，禁止凭猜测指定对比页对象」。
+**所以本次不把它写进任何地方，只在这里留档**，交 J0 与真人。
+
+### 已验证的修法（不需要点任何竞品名）
+
+第三方品牌有个结构特征：**含一个造出来的词**（viyou / vuvido / vrew）。
+真 query 全部由词典词组成。所以判据可以是「**所有 token 都是英文词**」——
+一个竞品名都不用列，也就不碰 `competitor_list_converged` 那条禁令。
+
+用 `/usr/share/dict/words`（macOS 自带，23 万词）加简单词形还原实测：
+
+```
+21 条样本（第三方品牌 10 + 真 query 11）→ 判对 21/21
+```
+
+词形还原是必需的：不加时 `ai that cuts video` / `search video by spoken words` /
+`how to find a clip in hours of footage` 三条被误杀，因为 web2 词典只收原形，
+`cuts` / `spoken` / `hours` 都不在里面。
+
+**尚未实现**——它是个新的过滤维度，且依赖一个系统文件（缺失时要能优雅降级并说出来）。
+待拍板。
