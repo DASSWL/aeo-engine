@@ -6,9 +6,14 @@
 两条路径，spec 要求都实现、先用降级路径跑通：
   * 降级路径（默认，--source csv）：真人从 Keyword Planner 手动导出 CSV 放 data/kw/，
     本脚本解析入 Query 库。
-  * API 路径（--source api）：Google Ads API。**接口留着，实现未接**——
-    前置凭据（developer token + OAuth）当前不在 .env，按纪律报缺凭据退出，
-    不降级、不静默跳过。
+  * API 路径（--source api）：Google Ads API `generateKeywordHistoricalMetrics`。
+    2026-08-05 实现（此前「接口留着，实现未接」）。凭据不全时按纪律报缺退出，
+    不降级、不静默跳过。词表 = 种子词 ∪ Query 库里还没有任何量证据的词
+    （判据与 kp_seeds.py 同：`月搜索量` 与 `搜索量区间` 皆空）。
+    ⚠️ 两个结构性事实，API 路径改变不了：
+      - 无投放账号返回的仍是桶中值（5×10^n），走与 CSV 同一套文件级桶化判定；
+      - >10 词的 keyword 会被整个请求拒绝，先剔除并在报告里点名。
+    本端点只做**补量**不做发现——发现面要 generateKeywordIdeas，另立脚本再说。
 
 用法：
     python3 scripts/keyword_volume.py                  # dry-run（默认），解析 data/kw/
@@ -24,6 +29,8 @@ import io
 import os
 import re
 import sys
+
+import requests
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -42,6 +49,11 @@ VOLUME_COLUMNS = ("avg. monthly searches", "avg. monthly searches (exact match)"
 GOOGLE_ADS_KEYS = ("GOOGLE_ADS_DEVELOPER_TOKEN", "GOOGLE_ADS_CLIENT_ID",
                    "GOOGLE_ADS_CLIENT_SECRET", "GOOGLE_ADS_REFRESH_TOKEN",
                    "GOOGLE_ADS_CUSTOMER_ID")
+
+# Google Ads API 版本按年轮换淘汰，写死会在停服日整链断掉。
+# 默认值随实现日期取当时最新，.env 里 GOOGLE_ADS_API_VERSION 可覆盖。
+GOOGLE_ADS_API_VERSION = "v21"
+KP_MAX_WORDS = 10   # KP 结构上限：>10 词整个请求被拒（2026-08-05 界面实测同款限制）
 
 
 # --------------------------------------------------------------------------
@@ -242,6 +254,103 @@ def parse_csv_dir(csv_dir, bucket_cfg):
 
 
 # --------------------------------------------------------------------------
+# Google Ads API 路径（2026-08-05 实现）
+# --------------------------------------------------------------------------
+
+def google_ads_access_token(env):
+    """refresh_token → access_token。一次 POST，与 gsc_queries 同一形态，不引 SDK。"""
+    resp = requests.post("https://oauth2.googleapis.com/token", data={
+        "client_id": env["GOOGLE_ADS_CLIENT_ID"],
+        "client_secret": env["GOOGLE_ADS_CLIENT_SECRET"],
+        "refresh_token": env["GOOGLE_ADS_REFRESH_TOKEN"],
+        "grant_type": "refresh_token",
+    }, timeout=30)
+    if resp.status_code >= 400:
+        raise RuntimeError("Google OAuth 换 access_token 失败 HTTP {}：{}".format(
+            resp.status_code, resp.text[:400]))
+    return resp.json()["access_token"]
+
+
+def fetch_api_rows(env, keywords, bucket_cfg):
+    """generateKeywordHistoricalMetrics → rows。
+
+    返回结构与 parse_csv_dir 逐字段对齐（含桶化判定），下游 create/update 零改动。
+    ⚠️ 无投放账号的 API 返回值同样是桶中值（实测 CSV 是 5×10^n，API 是同一套数据），
+    所以文件级桶化判定原样适用——API 来的数不因为「来自 API」就当精确值。
+    """
+    ok, too_long = [], []
+    for kw in keywords:
+        (ok if len(kw.split()) <= KP_MAX_WORDS else too_long).append(kw)
+
+    staged = []
+    note_prefix = ""
+    if ok:
+        token = google_ads_access_token(env)
+        version = env.get("GOOGLE_ADS_API_VERSION") or GOOGLE_ADS_API_VERSION
+        cid = env["GOOGLE_ADS_CUSTOMER_ID"].replace("-", "")
+        headers = {"Authorization": "Bearer {}".format(token),
+                   "developer-token": env["GOOGLE_ADS_DEVELOPER_TOKEN"],
+                   "Content-Type": "application/json"}
+        login_cid = (env.get("GOOGLE_ADS_LOGIN_CUSTOMER_ID") or "").replace("-", "")
+        if login_cid:
+            headers["login-customer-id"] = login_cid
+        url = ("https://googleads.googleapis.com/{}/customers/{}"
+               ":generateKeywordHistoricalMetrics".format(version, cid))
+        resp = requests.post(url, json={
+            "keywords": ok,
+            "keywordPlanNetwork": "GOOGLE_SEARCH",
+        }, headers=headers, timeout=60)
+        if resp.status_code >= 400:
+            text = resp.text[:600]
+            hint = ""
+            if "DEVELOPER_TOKEN_NOT_APPROVED" in text:
+                hint = ("\n→ developer token 还是 Test 级，只能查测试账号。"
+                        "去 Google Ads 后台 API Center 申请 Basic 级再跑。")
+            elif "USER_PERMISSION_DENIED" in text or "CUSTOMER_NOT_FOUND" in text:
+                hint = ("\n→ 检查 GOOGLE_ADS_CUSTOMER_ID 是否是这个 OAuth 账号"
+                        "有权限的账号；经 MCC 访问时需另配 GOOGLE_ADS_LOGIN_CUSTOMER_ID。")
+            raise RuntimeError("Google Ads API HTTP {}：{}{}".format(
+                resp.status_code, text, hint))
+        for r in resp.json().get("results") or []:
+            kw = (r.get("text") or "").strip()
+            if not kw:
+                continue
+            metrics = r.get("keywordMetrics") or {}
+            vol = metrics.get("avgMonthlySearches")
+            vol = int(vol) if vol is not None else None
+            staged.append({"query 文本": kw, "月搜索量": vol,
+                           "volume_note": "" if vol is not None
+                           else "API 未返回 avgMonthlySearches（无数据）",
+                           "source_file": "google_ads_api"})
+
+    bucketed, why = detect_buckets([r["月搜索量"] for r in staged], bucket_cfg)
+    if bucketed:
+        for r in staged:
+            raw = r["月搜索量"]
+            if raw is None:
+                r["搜索量区间"] = None
+                continue
+            r["搜索量区间"] = bucket_cfg["buckets"][raw]
+            r["月搜索量"] = None
+            r["volume_note"] = (
+                "桶化返回：API 给的 {} 是 Keyword Planner 的桶中值不是测量值，"
+                "已还原成区间 {!r} 写进 `搜索量区间`，`月搜索量` 留空".format(
+                    raw, r["搜索量区间"]))
+    else:
+        for r in staged:
+            r["搜索量区间"] = None
+
+    report = [{"file": "google_ads_api", "encoding": None, "delimiter": None,
+               "header_line": None, "keyword_column": "text",
+               "volume_column": "keywordMetrics.avgMonthlySearches",
+               "parsed_rows": len(staged), "error": None,
+               "bucketed": bucketed, "bucket_verdict": why,
+               "requested": len(ok),
+               "skipped_over_10_words": too_long}]
+    return staged, report
+
+
+# --------------------------------------------------------------------------
 # 主流程
 # --------------------------------------------------------------------------
 
@@ -270,21 +379,9 @@ def main():
 
         env = ac.load_env()
 
-        if args.source == "api":
-            missing = [k for k in GOOGLE_ADS_KEYS if not env.get(k)]
-            sc.missing_credential(
-                SCRIPT, missing,
-                "Google Ads API 路径的凭据不在 .env（缺 {} 项）。"
-                "spec §四 允许先走降级路径：真人从 Keyword Planner 导出 CSV 放 data/kw/，"
-                "再跑 --source csv。".format(len(missing)), th,
-                extra={"seed_count": len(seeds)})
-
-        csv_dir = args.csv_dir or os.path.join(ac.REPO, "data", "kw")
-        os.makedirs(csv_dir, exist_ok=True)
         bucket_cfg = ac.load_config("kp_buckets.yaml")
-        parsed, files_report = parse_csv_dir(csv_dir, bucket_cfg)
 
-        # Query 库现状 → 去重
+        # Query 库现状 → 去重（API 路径还要用它算「无量证据词表」，所以先取）
         notion = ac.Notion(env["NOTION_TOKEN"], env["NOTION_VERSION"])
         existing_rows = notion.query_all(env["DS_QUERY"])
         existing = {}
@@ -292,6 +389,39 @@ def main():
             key = sc.norm_query(ac.title_text(r.get("properties", {}), "query 文本"))
             if key:
                 existing[key] = r
+
+        if args.source == "api":
+            missing = [k for k in GOOGLE_ADS_KEYS if not env.get(k)]
+            if missing:
+                sc.missing_credential(
+                    SCRIPT, missing,
+                    "Google Ads API 路径的凭据不在 .env（缺 {} 项）。"
+                    "OAuth 三项用 scripts/ads_auth.py 换取；"
+                    "或走降级路径：真人从 Keyword Planner 导出 CSV 放 data/kw/，"
+                    "再跑 --source csv。".format(len(missing)), th,
+                    extra={"seed_count": len(seeds)})
+            # 词表 = 种子词 ∪ 库里还没有任何量证据的词（判据与 kp_seeds.py 一致）
+            kw_set, kw_list = set(), []
+            for s in seeds:
+                key = sc.norm_query(s["query 文本"])
+                if key not in kw_set:
+                    kw_set.add(key)
+                    kw_list.append(s["query 文本"])
+            for r in existing_rows:
+                props = r.get("properties", {})
+                text = ac.title_text(props, "query 文本")
+                vol_prop = props.get("月搜索量") or {}
+                vol = vol_prop.get("number") if vol_prop.get("type") == "number" else None
+                rng = ac.rich_text(props, "搜索量区间").strip()
+                key = sc.norm_query(text)
+                if text and vol is None and not rng and key not in kw_set:
+                    kw_set.add(key)
+                    kw_list.append(text)
+            parsed, files_report = fetch_api_rows(env, kw_list, bucket_cfg)
+        else:
+            csv_dir = args.csv_dir or os.path.join(ac.REPO, "data", "kw")
+            os.makedirs(csv_dir, exist_ok=True)
+            parsed, files_report = parse_csv_dir(csv_dir, bucket_cfg)
 
         seed_index = {sc.norm_query(s["query 文本"]): s for s in seeds}
         qcfg = scan_cfg["query"]
