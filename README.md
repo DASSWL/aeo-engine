@@ -1388,3 +1388,31 @@ Query 库 additive 加第 9 列 **`SERP 占位`**（rich_text）。独立回读�
 
 堵点解除后：`keyword_volume.py --source api` dry-run 验证 → 建 cron
 `aeo_keyword_volume`（建议周一 11:45）。
+
+## J4 草稿镜像到水箱行页面（2026-08-06 Shawn 反馈驱动）
+
+**痛点**：daily_sla 超时消息（当日 49 项）每行带水箱行链接，从 Telegram 点进
+Notion 页只有 LinkedIn 链接、没有草稿、也没有可复制的回执——草稿只活在群历史里，
+和 SLA 消息对不上号；发完 LinkedIn 后「怎么更新状态」也没有现成的抓手。
+
+**改动**（不动 Phase 1/2 脚本，`sla_check.py` 零改动）：
+
+- `aeo_common.Notion` 纯追加 `list_children` / `append_blocks` 两方法（不碰 schema，
+  不加列——加列要拍板，追加页面正文不用）。
+- `draft_runner.py` assemble `--commit` 写完 outbox 后，把草稿正文 + `sent <行ID>`
+  回执追加到对应水箱行页面正文。两样都用 code block（Notion 一键复制，手机免圈选）。
+  追加后独立回读核对（重列 children 找 heading），结果计入 assemble JSON 的
+  `notion_mirror` 节。
+- 配置在 `config/outreach.yaml` 新增 `draft_to_page` 节（开关 + 文案，脚本无字面量）。
+
+**口径**：Telegram 群仍是主通道与零发送红线的载体，页面只是镜像。镜像失败不炸 run
+（群里草稿是主产品），失败进 stderr 点名 + JSON 留档。按「heading 含日期」去重，
+assemble 重跑幂等（实测第二遍 10/10 `already_mirrored`）。
+
+**实测**：重跑当日 assemble，10 条草稿全部 `mirrored` 且 `readback_ok=true`。
+此后每天 08:30 起，SLA 消息里点进任一「已有草稿」的行即见草稿与回执。
+
+**已知边界**：每天最多 `max_drafts_per_run`（10）条、冷却 72h，按剩余时限升序
+（最逾期优先）。49 项超时意味着页面上暂时没草稿的行是还没轮到或被证据闸门拒绝
+（缺信号原文），前者约 5 天轮完一遍，要更快就调 `outreach.yaml` 的
+`max_drafts_per_run`（代价：claude 产稿时长 + 群消息 ×3）。

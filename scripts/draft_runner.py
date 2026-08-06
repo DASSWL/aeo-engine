@@ -6,7 +6,9 @@
 三段式，理由同 Phase 1 的 run_friday_review.sh：LLM 不进 Python。
   1. plan     —— 纯 Python。读水箱、算窗口、定切入角与渠道、过证据闸门 → 草稿请求包
   2. (claude) —— 由 run_draft_runner.sh 调 claude -p，加载真 skill 产出草稿正文
-  3. assemble —— 纯 Python。把草稿正文装进 spec 规定的 Telegram 模板 → outbox/
+  3. assemble —— 纯 Python。把草稿正文装进 spec 规定的 Telegram 模板 → outbox/；
+     --commit 时另把草稿 + `sent <行ID>` 回执镜像到水箱行页面正文
+     （2026-08-06 加，Why 见 config/outreach.yaml 的 draft_to_page 节）
 
 这么切的好处：窗口判定、闸门、去重、模板全部可离线复算与回归测试，
 LLM 只负责它唯一擅长的那件事（写英文），它挂了不会让队列算错。
@@ -411,6 +413,67 @@ def render_messages(item, body, cfg):
 
 
 # --------------------------------------------------------------------------
+# 草稿镜像到水箱行页面（Why 见 config/outreach.yaml 的 draft_to_page 节）
+# --------------------------------------------------------------------------
+
+def draft_page_blocks(item, body, cfg, now):
+    """一条草稿 → (去重用 heading 文本, 追加到页面正文的 block 列表)。
+
+    正文与回执用 code block：Notion 的 code block 自带一键复制，
+    与 Telegram 三条消息「整条即可粘贴」是同一个设计动机。
+    """
+    d = cfg["draft_to_page"]
+    heading = d["heading"].format(date=now.strftime("%Y-%m-%d"),
+                                  channel=item["channel_label"])
+
+    def text_chunks(text):
+        # rich_text 单元素上限 2000 字符，切成多元素同属一个 block，显示无缝
+        return [{"type": "text", "text": {"content": text[i:i + 1900]}}
+                for i in range(0, len(text), 1900)] or \
+               [{"type": "text", "text": {"content": ""}}]
+
+    def code_block(text):
+        return {"object": "block", "type": "code",
+                "code": {"language": "plain text", "rich_text": text_chunks(text)}}
+
+    return heading, [
+        {"object": "block", "type": "heading_3",
+         "heading_3": {"rich_text": text_chunks(heading)}},
+        code_block(body.strip()),
+        {"object": "block", "type": "paragraph",
+         "paragraph": {"rich_text": text_chunks(d["receipt_hint"])}},
+        code_block("sent {}".format(item["id"])),
+    ]
+
+
+def mirror_draft_to_page(notion, item, body, cfg, now):
+    """追加草稿到水箱行页面。返回一条结果记录，不抛异常。
+
+    失败不炸 run 的理由：Telegram 群是主通道，镜像挂了当天草稿仍要推出去。
+    追加后独立回读核对（重新列 children 找 heading），不信 append 自己的回执。
+    """
+    heading, blocks = draft_page_blocks(item, body, cfg, now)
+
+    def heading_exists():
+        kids = notion.list_children(item["id"]).get("results", [])
+        return any(
+            b.get("type") == "heading_3" and heading == "".join(
+                t.get("plain_text", "") for t in b["heading_3"].get("rich_text", []))
+            for b in kids)
+
+    try:
+        if heading_exists():
+            # 同一行同一天已镜像过（assemble 重跑），不重复追加
+            return {"id": item["id"], "人名": item["人名"], "status": "already_mirrored"}
+        notion.append_blocks(item["id"], blocks)
+        return {"id": item["id"], "人名": item["人名"],
+                "status": "mirrored", "readback_ok": heading_exists()}
+    except Exception as exc:  # noqa: BLE001
+        return {"id": item["id"], "人名": item["人名"],
+                "status": "failed", "reason": str(exc)}
+
+
+# --------------------------------------------------------------------------
 # 冷却状态
 # --------------------------------------------------------------------------
 
@@ -475,9 +538,13 @@ def main():
             with open(args.assemble, encoding="utf-8") as fh:
                 bodies = parse_drafts(fh.read())
 
-            written, unparsed = [], []
+            written, unparsed, mirrored = [], [], []
             state = load_cooldown()
             seen_files = {}
+            d2p = cfg.get("draft_to_page") or {}
+            mirror_notion = None
+            if d2p.get("enabled") and sc.resolve_mode(args) == "commit":
+                mirror_notion = ac.Notion(env["NOTION_TOKEN"], env["NOTION_VERSION"])
             for it in plan["drafts"]:
                 body = bodies.get(it["id"])
                 if not body:
@@ -510,13 +577,25 @@ def main():
                                     "part": pid, "file": fname, "chars": len(text)})
                 if sc.resolve_mode(args) == "commit":
                     state[it["id"]] = now.isoformat()
+                if mirror_notion:
+                    mirrored.append(mirror_draft_to_page(mirror_notion, it, body, cfg, now))
             if sc.resolve_mode(args) == "commit":
                 save_cooldown(state)
+
+            mirror_failed = [m for m in mirrored if m["status"] == "failed"]
+            if mirror_failed:
+                # 失败要被看见（写进 stderr → run 脚本的日志），但不炸 run：
+                # 群里的草稿是主产品，页面镜像缺了明天还有 SLA 消息兜底
+                print("NOTION_MIRROR_FAILED: {} 条草稿未能镜像到水箱行页面：{}".format(
+                    len(mirror_failed),
+                    "、".join(m["人名"] or m["id"] for m in mirror_failed)),
+                    file=sys.stderr)
 
             result = {
                 "script": SCRIPT, "step": "assemble", "mode": sc.resolve_mode(args),
                 "generated_at": now.isoformat(),
                 "messages": written, "unparsed": unparsed,
+                "notion_mirror": mirrored,
                 "wrote_outbox": sc.resolve_mode(args) == "commit",
             }
             sc.emit(SCRIPT + "_assemble", result, th)

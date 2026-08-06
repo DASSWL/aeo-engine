@@ -234,6 +234,20 @@ class Notion:
         return self._request("PATCH", "/pages/{}".format(page_id),
                              {"properties": properties})
 
+    # -- 以下两个方法是 Phase 3「草稿镜像到水箱行页面」追加，纯新增 --------------
+    # 操作对象是页面正文的 block，不碰 properties，不碰库 schema——
+    # 加列要 Shawn 拍板（Query 库加「SERP 占位」列的先例），追加正文不用。
+
+    def list_children(self, block_id, page_size=100):
+        """列页面正文的顶层 block。只用于追加前的去重核对，100 个够用：
+        水箱行页面正文只有本产线追加的草稿节，一行一天最多攒一节。"""
+        return self._request(
+            "GET", "/blocks/{}/children?page_size={}".format(block_id, page_size))
+
+    def append_blocks(self, block_id, children):
+        return self._request("PATCH", "/blocks/{}/children".format(block_id),
+                             {"children": children})
+
 
 # --------------------------------------------------------------------------
 # outbox
