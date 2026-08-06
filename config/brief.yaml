@@ -138,7 +138,7 @@ schedule:
     - time: "13:30"
       sort: "13:30"
       label: "SERP 占位扫描"
-      one_liner: "Query 库按量前 20 扫结果页，写「SERP 占位」列"
+      one_liner: "Query 库按量前 40 扫结果页，写「SERP 占位」列"
       days: [1]
     - time: "14:00"
       sort: "14:00"

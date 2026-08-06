@@ -275,10 +275,13 @@ probe:
 # 六、SERP 扫描
 # ---------------------------------------------------------------------------
 serp:
-  # 【出处：spec §四「只扫 Query 库里月搜索量前 20 的词」】
-  top_n_by_volume: 20
-  # 【出处：spec §四「SerpAPI 免费层（每月 100 次）」】
-  monthly_quota: 100
+  # 原值 20【出处：spec §四「只扫 Query 库里月搜索量前 20 的词」，
+  # 当时按免费层 100 次/月做的算术】。2026-08-06 Shawn 确认实际额度是
+  # 250 次/月，重新算：40 × 4.33 周 ≈ 173 次/月，5 个周一的月份 200 次，
+  # 都在 250 内且留 ≥50 次给手动排查。Query 库当前 42 行，top 40 ≈ 每周全库扫一遍。
+  top_n_by_volume: 40
+  # 2026-08-06 Shawn 确认：当前账号免费层是 250 次/月（spec 写的 100 是旧口径）。
+  monthly_quota: 250
   provider: "serpapi"
   endpoint: "https://serpapi.com/search.json"
   params:
