@@ -227,7 +227,7 @@ def despace(text):
     return NON_WORD.sub("", (text or "").lower())
 
 
-def brand_score(query, brand_cfg):
+def brand_score(query, brand_cfg, vocab=None):
     """返回 (最高相似度, 命中的核心词)。只跟**核心 token** 比，且跳过通用词。
 
     2026-08-05 首版实测踩到的坑：把复合品牌名 "vivuvideo" 拿去跟通用 token
@@ -239,6 +239,17 @@ def brand_score(query, brand_cfg):
     generic = {g.lower() for g in brand_cfg.get("generic_tokens") or []}
     flat = despace(query)
     tokens = [t for t in NON_WORD.split((query or "").lower()) if t and t not in generic]
+    # 英文词永远不是品牌拼写变体——变体按定义是造出来的词。
+    # 不加这条会误杀 live video / view count / visual ai / vivid ai（实测）。
+    if vocab and brand_cfg.get("skip_dictionary_words"):
+        real_words = [t for t in tokens if t in vocab]
+        tokens = [t for t in tokens if t not in vocab]
+        # 非通用 token **全是**英文词 → 整串也不比。
+        # 整串比对本来只为逮住被空格拆开的品牌（"vi you ai" → "viyouai"，
+        # 其中 "vi" 不是词），拿它去比一句全英文的短语只会误伤：
+        # 实测 "visual ai"(flat 0.600) / "vivid ai"(flat 0.667) 都被这一步误杀过。
+        if real_words and not tokens:
+            return 0.0, None
     best, hit = 0.0, None
     for term in brand_cfg["core_terms"]:
         for cand in [flat] + tokens:
@@ -250,20 +261,29 @@ def brand_score(query, brand_cfg):
     return best, hit
 
 
-def is_brand(query, brand_cfg):
-    """判品牌。三段：强制表 → 子串命中 → 长度分档的模糊匹配。"""
+def is_brand(query, brand_cfg, vocab=None):
+    """判品牌。四段：强制表 → 独立 token → 子串命中 → 长度分档的模糊匹配。"""
     low = " ".join((query or "").split()).lower()
     if low in {s.lower() for s in brand_cfg.get("force_not_brand") or []}:
         return False, 0.0, "force_not_brand"
     if low in {s.lower() for s in brand_cfg.get("force_brand") or []}:
         return True, 1.0, "force_brand"
 
+    toks = {t for t in NON_WORD.split(low) if t}
+    for t in brand_cfg.get("standalone_tokens") or []:
+        if t.lower() in toks:
+            return True, 1.0, "standalone:{}".format(t)
+    # 第三方品牌里恰好是英文词的那一类。表由真人填，脚本不推断——见 config ⑦。
+    for t in brand_cfg.get("third_party_tokens") or []:
+        if t.lower() in toks:
+            return True, 1.0, "third_party:{}".format(t)
+
     flat = despace(query)
     for term in brand_cfg.get("contains_terms") or []:
         if despace(term) and despace(term) in flat:
             return True, 1.0, "contains:{}".format(term)
 
-    score, hit = brand_score(query, brand_cfg)
+    score, hit = brand_score(query, brand_cfg, vocab)
     # 短串与长短语用不同的门槛：去空格后很短的串跟品牌名有一半像，
     # 几乎必然是拼写变体；长短语则要求高得多，否则误杀真词。
     thr = (brand_cfg["short_threshold"]
@@ -281,12 +301,78 @@ def hits_marker(text, markers):
 
 
 # ---------------------------------------------------------------------------
+# 造词过滤：把第三方品牌挡在外面，且不点任何竞品名
+#
+# 2026-08-05 首轮真实 dry-run：30 条候选里 25 条是别人家的品牌
+# （viyou / vuvido / visla / vrew / vidifyai …）。我们靠相似域名排在那些词上，
+# 而品牌过滤器只认我们自己的品牌。
+#
+# 不列竞品名单的理由是硬约束：gates.yaml 的 competitor_list_converged = false，
+# 且明文禁止凭猜测指定。脚本里写死竞品名 = 用搜索数据替 J0 把那个判断做了。
+#
+# 改用结构判据：第三方品牌都含**造出来的词**，真 query 全由英文词组成。
+# ---------------------------------------------------------------------------
+
+def load_vocab(neo_cfg):
+    """载入词典。返回 (词集合 或 None, 状态说明)。
+
+    ⚠️ 文件不在时**不静默放行**。整条规则停用，并把原因一路带到报告最上方——
+    「没报错」被读成「过滤过了」是 Phase 3 §七⑦ 那一类隐患，这里不许重演。
+    """
+    if not neo_cfg.get("enabled"):
+        return None, "已在 config 里关闭（neologism.enabled=false）——造词过滤未生效"
+    path = neo_cfg["wordlist_path"]
+    try:
+        with open(path, encoding="utf-8", errors="ignore") as fh:
+            words = {w.strip().lower() for w in fh if w.strip()}
+    except OSError as exc:
+        return None, ("⚠️ 词典 {} 读不到（{}）——**造词过滤整条停用**，"
+                      "第三方品牌名会原样进候选。别把这次的输出当过滤过的。"
+                      .format(path, exc))
+    if len(words) < 1000:
+        return None, ("⚠️ 词典 {} 只有 {} 个词，不像正常词表——整条规则停用，"
+                      "宁可不过滤也不要用一份坏词典误杀真 query。".format(path, len(words)))
+    return words, "词典 {} 载入 {} 词".format(path, len(words))
+
+
+def unknown_tokens(query, vocab, neo_cfg):
+    """返回该 query 里**不认识**的 token。空列表 = 全都认识。"""
+    allow = {a.lower() for a in neo_cfg.get("allow_tokens") or []}
+    irreg = {k.lower() for k in (neo_cfg.get("irregular") or {})}
+    sufs = neo_cfg.get("stem_suffixes") or []
+    out = []
+    for t in NON_WORD.split((query or "").lower()):
+        if not t or t.isdigit():
+            continue
+        if t in allow or t in irreg or t in vocab:
+            continue
+        # 词形还原：web2 只收原形，不还原会误杀 cuts / hours / spoken 这类。
+        stemmed = False
+        for suf in sufs:
+            if t.endswith(suf) and len(t) > len(suf) and t[:-len(suf)] in vocab:
+                stemmed = True
+                break
+        if not stemmed and t.endswith("ing") and (t[:-3] + "e") in vocab:
+            stemmed = True
+        if not stemmed and t.endswith("ed") and t[:-1] in vocab:
+            stemmed = True
+        if not stemmed:
+            out.append(t)
+    return out
+
+
+def has_non_ascii(query):
+    return any(ord(ch) > 127 for ch in (query or ""))
+
+
+# ---------------------------------------------------------------------------
 # 分类
 # ---------------------------------------------------------------------------
 
-def screen(rows, cfg, scan_cfg):
+def screen(rows, cfg, scan_cfg, vocab):
     """GSC 行 → (候选, 品牌行, 被过滤行)。每条被丢的都说明理由。"""
     f, b = cfg["filters"], cfg["brand"]
+    neo = cfg.get("neologism") or {}
     qcfg = scan_cfg["query"]
     kept, branded, dropped = [], [], []
 
@@ -301,7 +387,7 @@ def screen(rows, cfg, scan_cfg):
             "ctr": round(r.get("ctr", 0) * 100, 2),
             "position": round(r.get("position", 0), 1),
         }
-        brand, score, hit = is_brand(q, b)
+        brand, score, hit = is_brand(q, b, vocab)
         item["brand_score"] = round(score, 3)
         item["brand_hit"] = hit
         if brand:
@@ -321,6 +407,20 @@ def screen(rows, cfg, scan_cfg):
         if bad:
             dropped.append(dict(item, drop_reason="命中排除词 {!r}".format(bad)))
             continue
+
+        # 造词过滤。vocab 为 None 表示规则停用（原因已在报告最上方大声说过）。
+        if vocab is not None:
+            if has_non_ascii(q):
+                dropped.append(dict(item, drop_reason=neo["non_ascii_reason"]))
+                continue
+            unk = unknown_tokens(q, vocab, neo)
+            if unk:
+                dropped.append(dict(item,
+                    drop_reason="含造出来的词 {}——多半是第三方品牌名。"
+                                "若确属正常词汇，加进 config neologism.allow_tokens"
+                                .format(unk),
+                    unknown_tokens=unk))
+                continue
 
         typ = classify_type(q, scan_cfg)
         item["类型"] = typ
@@ -370,6 +470,10 @@ def render(r):
          "| **待写入** | **{}** |".format(c["to_create"]),
          "| 被 max_per_run 截下 | {} |".format(c["capped"]),
          "| 规则文件状态 | `{}` |".format(r["config_status"]),
+         "| 造词过滤 | {} |".format(
+             "✅ " + r["neologism_filter"]["status"]
+             if r["neologism_filter"]["active"]
+             else "❌ **未生效** —— " + r["neologism_filter"]["status"]),
          "",
          "**branded search 基线**（Concept A7 度量项，此前无人计算）：",
          "",
@@ -396,6 +500,16 @@ def render(r):
             L.append("- {!r} — 相似度 {} vs `{}`（{} 曝光）".format(
                 it["query 文本"], it["brand_score"], it["brand_hit"],
                 it["impressions"]))
+        L.append("")
+
+    if r.get("possible_third_party"):
+        L += ["## 疑似第三方品牌（词典词，两道滤器都拦不住，需真人点名）", "",
+              "填进 `config/gsc.yaml` 的 `brand.third_party_tokens` 即可拦掉。",
+              "**脚本刻意不自己填**：从搜索数据认竞品正是 "
+              "`competitor_list_converged = false` 那条禁令要防的推断。", ""]
+        for t, qs in r["possible_third_party"]:
+            L.append("- `{}` — 出现在 {} 条候选里：{}".format(
+                t, len(qs), "、".join(qs[:4])))
         L.append("")
 
     L += ["> ⛔ **impressions 不是月搜索量。** 它是「我们出现了多少次」，",
@@ -458,7 +572,8 @@ def main():
             # 窗口由导出时界面上选的日期决定，文件里带不出来——不编。
             start = end = "见导出文件（CSV 不含日期范围）"
 
-        kept, branded, dropped = screen(rows, cfg, scan_cfg)
+        vocab, vocab_note = load_vocab(cfg.get("neologism") or {})
+        kept, branded, dropped = screen(rows, cfg, scan_cfg, vocab)
 
         notion = ac.Notion(env["NOTION_TOKEN"], env["NOTION_VERSION"])
         existing = sc.existing_query_texts(notion.query_all(env["DS_QUERY"]))
@@ -509,9 +624,24 @@ def main():
                     else bcfg["long_threshold"])
         borderline = sorted(
             [b for b in branded
-             if b["brand_hit"] and not str(b["brand_hit"]).startswith(("contains:", "force"))
+             if b["brand_hit"] and not str(b["brand_hit"]).startswith(
+                 ("contains:", "force", "standalone:"))
              and b["brand_score"] < _thr(b["query 文本"]) + 0.08],
             key=lambda x: -x["impressions"])[:15]
+
+        # 候选里反复出现的非通用 token —— 疑似第三方品牌，交真人点名。
+        # 判据纯粹是「重复出现」，不含任何关于「谁是竞品」的判断。
+        tok_map = {}
+        generic = {g.lower() for g in cfg["brand"].get("generic_tokens") or []}
+        # allow_tokens 是真人确认过的正常词汇，不该出现在「疑似品牌」清单里
+        generic |= {a.lower() for a in (cfg.get("neologism") or {}).get("allow_tokens") or []}
+        for it in fresh:
+            for t in set(NON_WORD.split(it["query 文本"].lower())):
+                if t and t not in generic and len(t) > 2 and not t.isdigit():
+                    tok_map.setdefault(t, []).append(it["query 文本"])
+        possible_third_party = sorted(
+            [(t, qs) for t, qs in tok_map.items() if len(qs) >= 2],
+            key=lambda x: -len(x[1]))
 
         result = {
             "script": SCRIPT, "mode": mode, "status": "ok",
@@ -519,6 +649,7 @@ def main():
             "config_status": status,
             "generated_at": datetime.now(tz).isoformat(),
             "source": args.source,
+            "neologism_filter": {"active": vocab is not None, "status": vocab_note},
             "files": files_report,
             "site_url": site_url,
             "window": ({"start": start, "end": end,
@@ -536,6 +667,7 @@ def main():
                 "capped": len(capped),
             },
             "branded_baseline": baseline(branded, kept + dropped),
+            "possible_third_party": possible_third_party,
             "to_create": to_create,
             "capped": capped,
             "duplicate": duplicate,

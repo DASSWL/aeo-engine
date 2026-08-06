@@ -33,6 +33,14 @@ meta:
     真正的非品牌词全部落在「AI 视频生成 / 剪辑」品类、排名 88–95，
     而 Query 库整库讲的是「检索已有素材」——**一条都没有**。
     下面的过滤参数就是照这轮观察定的，仍属【推演待校准】。
+  brand_rule_measured_v2: >-
+    2026-08-05 加词典与独立 token 规则之后重测（品牌变体 30 + 真词 28）：
+    我方品牌变体 26/26 命中（另 4 条 vioai / vuvido style / visla ai /
+    vrew video editor 是**第三方**品牌，本就该由造词过滤接手，不归我方品牌滤器）；
+    真词 28/28 全保住，**零误杀**。
+    加词典之前 live video / view count / video view / live stream /
+    visual ai / vivid ai 六条会被误杀——那批词碰巧不在 vivu.ai 的数据里，
+    首轮跑全量时没暴露，是补测通用词组才发现的。
   brand_rule_measured: >-
     品牌判定规则用上面那轮真实 query 做过离线自测（24 条品牌变体 + 20 条真词）：
     品牌命中 23/24（漏 "vioai"，得分 0.444），真词保住 20/20，零误杀。
@@ -123,10 +131,116 @@ brand:
   short_max_chars: 10
   short_threshold: 0.50
   long_threshold: 0.72
+
+  # ⑤ **英文词永远不判为品牌拼写变体。**
+  #    品牌变体按定义就是造出来的词。2026-08-05 实测：不加这条时
+  #    live video / view count / visual ai / vivid ai 全被误杀
+  #    （"vivu" vs "live"=0.50、vs "visual"=0.60、vs "vivid"=0.667），
+  #    只是这批词碰巧不在 vivu.ai 的数据里，首轮没暴露而已。
+  #    用的是 neologism 那份词典，词典读不到时本条自动失效（会在报告里说）。
+  skip_dictionary_words: true
+
+  # ⑥ 单独成 token 时直接判品牌。真人维护，不是脚本推断。
+  #    需要它是因为 "vu" **在系统词典里**，⑤ 会放它过去；
+  #    而阈值又是按整串长度选的，于是 "vu editor"(8字符,阈值0.5) 被抓、
+  #    "vu video editor"(13字符,阈值0.72) 漏掉——同一个证据两种标准，不自洽。
+  #    列成显式 token 最干净，且不动已经调好的阈值。
+  standalone_tokens: ["vu", "viv", "vivu", "vuvu", "vivo"]
+
+  # ⑦ 第三方品牌里**恰好是英文词**的那一类。⑤⑥ 和造词过滤都拦不住它们：
+  #    2026-08-05 实测残留 4 条含 "viva"（VivaVideo 是真实产品，而 viva 是英文词）。
+  #
+  #    **这张表刻意留空，由真人填。** 脚本不自己填的理由是硬约束：
+  #    gates.yaml 的 competitor_list_converged = false，且 Concept 明文
+  #    「竞替名单没有从真实对话中收敛出来之前，禁止凭猜测指定对比页对象」。
+  #    从搜索数据里认出「viva 是竞品」正是那条禁令要防的推断——
+  #    哪怕它看起来很显然。真人填等于真人做了那个判断，脚本只执行。
+  #
+  #    每轮跑完，报告里会把疑似这一类的候选单列出来供真人过目。
+  third_party_tokens: []
   # 无论相似度多少都强制视为品牌的（人工加的）
   force_brand: []
   # 无论相似度多少都强制**不**视为品牌的（被误杀后由真人加回来）
   force_not_brand: []
+
+# ---------------------------------------------------------------------------
+# 造词过滤：把**别人家的品牌名**挡在 Query 库外面
+#
+# 2026-08-05 首轮真实 dry-run 暴露的问题：30 条候选里只有 5 条是真 query，
+# 其余 25 条是第三方品牌（viyou / vuvido / visla / vrew / vidifyai / vibio /
+# virio / vidmake）。我们靠相似域名排在那些词上，而品牌过滤器只认**我们自己**的品牌。
+#
+# 为什么不直接列一份竞品名单：`gates.yaml: competitor_list_converged = false`，
+# 且 Concept 明文「竞替名单没有从真实对话中收敛出来之前，禁止凭猜测指定对比页对象」。
+# 脚本里写死一份竞品名，等于用搜索数据替 J0 把那个判断做了。
+#
+# 所以改用**结构判据**：第三方品牌都含一个**造出来的词**（viyou / vuvido / vrew），
+# 而真 query 全部由英文词组成。判据 = 「所有 token 都认识」。一个竞品名都不用点。
+#
+# 实测（21 条样本：第三方品牌 10 + 真 query 11）→ 判对 21/21。
+neologism:
+  enabled: true
+  # 系统词典。macOS 自带（/usr/share/dict/words → web2，约 23 万词）。
+  # ⚠️ 文件不在时**不静默放行**：整条规则停用并在输出里大声说出来。
+  #    「没报错」被读成「过滤过了」是 Phase 3 §七⑦ 那类隐患。
+  wordlist_path: "/usr/share/dict/words"
+
+  # web2 只收原形，所以必须做词形还原——不加的话
+  # `ai that cuts video` / `search video by spoken words` /
+  # `how to find a clip in hours of footage` 三条真 query 会被误杀
+  # （cuts / spoken / hours 都不在词典里）。实测确认。
+  stem_suffixes: ["s", "es", "ed", "ing", "er", "ly"]
+
+  # 词典里没有但确实是正常词汇的。真人往这里加，不是脚本猜。
+  allow_tokens:
+    - ai
+    - app
+    - apps
+    - online
+    - video
+    - videos
+    - editing
+    - editor
+    - software
+    - tools
+    - powered
+    - saas
+    - ugc
+    - b2b
+    - seo
+    - api
+    - url
+    - gif
+    - mp4
+    - 4k
+    - xyz
+    - vlog
+    - vlogs
+    - podcast
+    - podcasts
+    - livestream
+    - timeline
+    - metadata
+    - workflow
+    - workflows
+    - repurpose
+    - repurposing
+    - transcript
+    - transcripts
+    - premiere   # Adobe Premiere，词典里有但列出来免得改词典时丢
+    - pro
+
+  # 不规则变化，词形还原兜不住的。
+  irregular:
+    spoken: speak
+    found: find
+    made: make
+    cuts: cut
+
+  # 非拉丁字母的 query（阿拉伯语 / 越南语 / 中文…）会因为 token 全不认识被丢。
+  # 那是**刻意**的：AEO 内容是英文写的，类型判定表也是英文的。
+  # 但它必须被看见，所以 drop_reason 会点名说是「非英文」而不是笼统的「造词」。
+  non_ascii_reason: "非英文 query——AEO 内容与类型判定表都是英文的，本链不处理"
 
 caps:
   # 一次最多写进 Query 库几条。被截下的不静默丢弃，留在日志里并点名。

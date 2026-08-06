@@ -1198,3 +1198,60 @@ ai video editing studio             7 曝光 / 排名 89.9
 
 **尚未实现**——它是个新的过滤维度，且依赖一个系统文件（缺失时要能优雅降级并说出来）。
 待拍板。
+
+## 造词过滤落成：候选 30 → 14（2026-08-05）
+
+三道滤器分工，跑在 739 条真实 query 上：
+
+| 滤器 | 拦下 | 拦的是什么 |
+|---|---:|---|
+| 我方品牌（模糊+词典+独立 token） | 533 | `vivu` 及几百条拼写变体 |
+| 曝光 < 3 | 132 | 长尾噪音 |
+| 单 token | 34 | `vuvido` / `stagevu` 一类 |
+| **造词** | **24** | **第三方品牌**：viyou / vuvido / visla / vrew / vidifyai … |
+| 排除词 / 非英文 | 2 | `login`、阿拉伯语 |
+| → 待写入 | **14** | |
+
+### 造词判据：不点任何竞品名
+
+第三方品牌都含**造出来的词**，真 query 全由英文词组成 → 判据「所有 token 都认识」。
+用 `/usr/share/dict/words`（23 万词）+ 词形还原。**词典读不到时整条规则停用并在报告最上方大声说**——
+「没报错」被读成「过滤过了」是 Phase 3 §七⑦ 那类隐患。
+
+### 顺带修好一个首轮没暴露的误杀
+
+加词典之前，品牌模糊匹配的 `short_threshold = 0.50` 会误杀
+`live video` / `view count` / `video view` / `live stream` / `visual ai` / `vivid ai`——
+`"vivu"` vs `"live"` = 0.50、vs `"visual"` = 0.60、vs `"vivid"` = 0.667。
+
+**这批词碰巧不在 vivu.ai 的数据里，所以跑全量时没暴露**，是补测通用词组才发现的。
+根因不是阈值：**品牌拼写变体按定义就不是英文词**。所以加了两条——
+英文词永不判为品牌变体；非通用 token 全是英文词时整串也不比
+（整串比对本是为逮住被空格拆开的品牌 `vi you ai`，其中 `vi` 不是词）。
+
+重测（品牌变体 30 + 真词 28）：**我方品牌 26/26、真词 28/28 零误杀。**
+
+还加了 `standalone_tokens`：`vu` **在系统词典里**，两道滤器都放行，
+而阈值按整串长度选又让 `vu editor`(8字符) 被抓、`vu video editor`(13字符) 漏掉——
+同一个证据两种标准。列成显式 token 最干净，且不动已调好的阈值。
+
+### ⚠️ 剩一类挡不住的：恰好是英文词的第三方品牌
+
+残留 4 条含 `viva`（VivaVideo 是真实产品，而 `viva` 是英文词）。
+结构判据对它无能为力——要拦必须**点名**。
+
+加了 `brand.third_party_tokens`，**刻意留空**。脚本不自己填，理由是硬约束：
+`gates.yaml: competitor_list_converged = false`，且明文禁止凭猜测指定。
+从搜索数据认出「viva 是竞品」正是那条禁令要防的推断——**哪怕它看起来很显然**。
+每轮报告会把疑似的单列出来（当前 `viva` 4 次居首）供真人点名。
+
+### 14 条候选的成色
+
+真 query 9 条（`video editing made easy` / `interactive fan videos` /
+`ai-powered video editing software` / `ai assistant video editor` /
+`ai video editing studio` / `ai video online` / `ai that cuts video` /
+`ai powered video editor` / `xyz video generator`），
+外加 4 条 `viva` 与 1 条 `v i video`。
+
+**全部落在「AI 视频生成/剪辑」品类，排名 88–95。** 与 Query 库整库讲的
+「检索已有素材」仍然一条都不重合——这一点跟人工看那一眼的结论一致。
