@@ -3,13 +3,11 @@
 
 依据：Build Spec · Phase 2 §一.2 与 §四「脚本要点 · serp_scan.py」。
 
-⚠️ 已知的 schema 缺口（不是本脚本的 bug，是 spec 与 Phase 0 冻结字段表对不上）：
-   spec 写「记录占位者与评测站页 URL，写 Query 库」，但 Phase 0 的 Query 库只有 7 个字段
-   （query 文本 / 类型 / 面向角色 / 月搜索量 / 数据来源 / 状态 / 关联资产），
-   **没有任何字段能装占位者名单或 URL 列表**。硬约束是不改五库 schema，
-   所以本脚本 --commit 时只能写 `数据来源`（且仅在该字段为空时写，不覆盖
-   Keyword Planner 的来源标注），占位者与评测站页全部落在 logs/serp_scan_*.json。
-   这一条需要真人拍板（加字段 / 换库 / 就留在日志），已在输出的 schema_gap 里标明。
+schema 缺口已解决（2026-08-06，Phase 0 字段表第四次解冻，Shawn 拍板）：
+   Query 库 additive 加了第 9 列 `SERP 占位`（rich_text）。--commit 时写入
+   「top3 占位域名 + 评测站页 + 扫描日期」的紧凑摘要，完整占位者名单仍以
+   logs/serp_scan_*.json 为准（rich_text 装不下全量，列里只放看一眼要用的）。
+   `数据来源` 的行为不变：仅在为空时写「SERP 观察」，不覆盖已有来源标注。
 
 用法：
     python3 scripts/serp_scan.py                         # dry-run，取 Query 库按量前 N
@@ -129,10 +127,30 @@ def extract(body, review_domains):
     return occupants, review_pages
 
 
+def serp_cell(occupants, review_pages, date_str, max_len=1900):
+    """`SERP 占位` 列的紧凑摘要。rich_text 上限 2000 字符，超长截断留标记。
+
+    只放看一眼要用的：前 3 占位域名、评测站页 URL、扫描日期。
+    完整名单在 logs/serp_scan_*.json，这列不是它的替代品。
+    """
+    top3 = [o["domain"] for o in occupants[:3] if o.get("domain")]
+    parts = ["top3: {}".format(", ".join(top3) if top3 else "(无结果)")]
+    if review_pages:
+        parts.append("评测站: {}".format(
+            " ; ".join(p["link"] for p in review_pages[:2] if p.get("link"))))
+    parts.append("扫描 {}".format(date_str))
+    text = " | ".join(parts)
+    if len(text) > max_len:
+        text = text[:max_len] + "…(截断)"
+    return text
+
+
 def main():
     parser = sc.base_parser(__doc__.splitlines()[0])
     parser.add_argument("--queries", nargs="+", default=None,
                         help="直接指定要扫的 query，跳过 Query 库排序取词")
+    parser.add_argument("--top-n", type=int, default=None, dest="top_n",
+                        help="覆盖 scan.yaml 的 top_n_by_volume（试跑省额度用）")
     args = parser.parse_args()
     mode = sc.resolve_mode(args)
 
@@ -155,11 +173,12 @@ def main():
             notion = ac.Notion(env["NOTION_TOKEN"], env["NOTION_VERSION"])
             rows = notion.query_all(env["DS_QUERY"])
             bucket_cfg = ac.load_config("kp_buckets.yaml")
+            top_n = args.top_n or serp_cfg["top_n_by_volume"]
             targets, query_db_total = pick_queries(
-                rows, serp_cfg["top_n_by_volume"], bucket_cfg["sort_floor"])
+                rows, top_n, bucket_cfg["sort_floor"])
             for t in targets:
                 t["selected_by"] = "Query 库按量前 {}（月搜索量精确值或搜索量区间下界）".format(
-                    serp_cfg["top_n_by_volume"])
+                    top_n)
 
         now = sc.now_local(th)
         used, usage_files = month_usage(now.strftime("%Y-%m"))
@@ -195,12 +214,14 @@ def main():
             plan["truncated_to_remaining"] = len(targets)
 
         session = requests.Session()
+        date_str = now.strftime("%Y-%m-%d")
         results, calls = [], 0
         for t in targets:
             body = call_serpapi(session, serp_cfg["endpoint"], serp_cfg["params"],
                                 t["query 文本"], api_key)
             calls += 1
             occupants, review_pages = extract(body, serp_cfg["review_site_domains"])
+            t["SERP 占位"] = serp_cell(occupants, review_pages, date_str)
             results.append({
                 "query 文本": t["query 文本"],
                 "月搜索量": t["月搜索量"],
@@ -210,18 +231,28 @@ def main():
                 "评测站页": review_pages,
                 "占位者数": len(occupants),
                 "评测站页数": len(review_pages),
+                "SERP 占位": t["SERP 占位"],
             })
 
-        # 写库：只有 数据来源 有地方落，且不覆盖已有来源标注
+        # 写库（2026-08-06 起有两处可落）：
+        #   `SERP 占位` —— 每次扫描覆盖写（它是「最近一次扫描的快照」，历史在 logs）
+        #   `数据来源` —— 仅在为空时写「SERP 观察」，不覆盖已有来源标注
         ds_value = scan_cfg["query"]["data_source_values"]["serp_scan"]
-        writable = [t for t in targets if t["page_id"] and not t["数据来源"]]
+        with_page = [t for t in targets if t["page_id"]]
+        ds_writable = [t for t in with_page if not t["数据来源"]]
         written = []
         if mode == "commit":
             notion = ac.Notion(env["NOTION_TOKEN"], env["NOTION_VERSION"])
-            for t in writable:
-                notion.update_page(t["page_id"], {"数据来源": sc.p_select(ds_value)})
+            for t in with_page:
+                props = {"SERP 占位": {"rich_text": [
+                    {"type": "text", "text": {"content": t["SERP 占位"]}}]}}
+                if not t["数据来源"]:
+                    props["数据来源"] = sc.p_select(ds_value)
+                notion.update_page(t["page_id"], props)
                 written.append({"action": "update", "query 文本": t["query 文本"],
-                                "page_id": t["page_id"], "数据来源": ds_value})
+                                "page_id": t["page_id"],
+                                "SERP 占位": t["SERP 占位"],
+                                "数据来源": ds_value if not t["数据来源"] else "(已有，未动)"})
 
         sc.emit(SCRIPT, {
             "script": SCRIPT,
@@ -232,13 +263,13 @@ def main():
             "plan": plan,
             "query_db_total": query_db_total,
             "results": results,
-            "notion_writable_rows": len(writable),
+            "notion_rows_with_page": len(with_page),
+            "notion_ds_writable_rows": len(ds_writable),
             "written": written,
-            "schema_gap": {
-                "问题": "Query 库没有能装占位者与评测站页 URL 的字段（Phase 0 冻结 7 字段）",
-                "本次处置": "占位者与评测站页只落 logs/serp_scan_*.json；"
-                            "Notion 侧仅在 数据来源 为空时写入「{}」".format(ds_value),
-                "待拍板": "加字段 / 另建库 / 就留在日志三选一（改 schema 需解冻 Phase 0 字段表）",
+            "schema_note": {
+                "现状": "2026-08-06 第四次解冻加了 `SERP 占位` 列（rich_text），"
+                        "本脚本每次扫描覆盖写快照；完整占位者名单仍在 logs/serp_scan_*.json",
+                "数据来源": "仅在为空时写入「{}」，不覆盖已有来源标注".format(ds_value),
             },
         }, th)
         return sc.EXIT_OK

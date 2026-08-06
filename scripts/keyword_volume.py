@@ -52,7 +52,9 @@ GOOGLE_ADS_KEYS = ("GOOGLE_ADS_DEVELOPER_TOKEN", "GOOGLE_ADS_CLIENT_ID",
 
 # Google Ads API 版本按年轮换淘汰，写死会在停服日整链断掉。
 # 默认值随实现日期取当时最新，.env 里 GOOGLE_ADS_API_VERSION 可覆盖。
-GOOGLE_ADS_API_VERSION = "v21"
+# 2026-08-06 实测：v21 已停服（UNSUPPORTED_VERSION，请求直接被拒），
+# v22–v25 均在服，取最新的 v25（寿命最长）。
+GOOGLE_ADS_API_VERSION = "v25"
 KP_MAX_WORDS = 10   # KP 结构上限：>10 词整个请求被拒（2026-08-05 界面实测同款限制）
 
 

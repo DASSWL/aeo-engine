@@ -34,7 +34,8 @@ render:
   # 2026-08-05 再从 32 提到 37：Query 库写入去人工化新增 5 条时刻表行
   #    （每日 1 条「AI 建议入库」+ 周一 3 条 + 周五 1 条），最坏形态是
   #    周一 32+4=36，留 1 行余量取 37。原则不变：永不触发截断。
-  max_lines: 37
+  # 2026-08-06 再 +1（周一「SERP 占位扫描」行）→ 38。
+  max_lines: 38
   overflow_marker: "…（超出 {max} 行上限已截断，完整版见 outbox 原文）"
   header: "☀️ AEO Engine · 今日简报 {date}（{weekday}）"
   weekday_names: ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
@@ -133,6 +134,11 @@ schedule:
       sort: "13:00"
       label: "Apollo 名单"
       one_liner: "按 segment 拉名单配对入水箱，含招聘公司反查"
+      days: [1]
+    - time: "13:30"
+      sort: "13:30"
+      label: "SERP 占位扫描"
+      one_liner: "Query 库按量前 20 扫结果页，写「SERP 占位」列"
       days: [1]
     - time: "14:00"
       sort: "14:00"

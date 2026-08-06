@@ -1351,3 +1351,40 @@ request is invalid」），已改 loopback；ads_auth.py 生而用 loopback。
 正文走既有 skill 产线（skill_check --stage → claude -p + vivu-outreach +
 ai-writing-guideline，--add-dir 指向实时规则文件）。B–E 四段建成即暂停，
 启动键仍在 Apollo 界面由真人按——零发送红线一字未动。
+
+---
+
+# 2026-08-06：SERP 链落成；KP 堵点确认
+
+## SERP 链（第四次解冻，Shawn 拍板加列）
+
+Query 库 additive 加第 9 列 **`SERP 占位`**（rich_text）。独立回读：9 字段、
+既有 8 列未动、42 行完好。写入语义：**每次扫描覆盖写快照**（历史在 logs），
+格式 `top3: 域名1, 域名2, 域名3 | 评测站: url | 扫描 YYYY-MM-DD`。
+`数据来源` 行为不变：仅在为空时写「SERP 观察」。
+
+`serp_scan.py` 第二次改动：写新列 + `--top-n` 覆盖参数（试跑省额度）。
+实测 1 次调用打通全链：`reverse video search` → 占位快照入库，
+来源（Keyword Planner）与区间未被触碰。
+
+新 cron：`aeo_serp_scan` 周一 13:30。配额算术：20 次/周 ≈ 87 次/月，
+脚本自带的月配额闸（100 次）在 5 个周一的月份会拦住超额部分——拦了会在日志里说。
+
+## KP 链堵点（2026-08-06 实测，只剩真人动作）
+
+代码侧已就绪并修掉一个坑：**v21 API 已停服**（UNSUPPORTED_VERSION），
+默认版本改 v25（v22–v25 实测均在服）。OAuth / refresh token 本身工作正常。
+
+剩两个堵点，都在 Google 后台：
+
+1. **developer token 是 Test 级**（v22–v25 一致返回「only approved for use with
+   test accounts」）。要在**发 token 的那个账号**的 API Center 申请 Basic。
+2. **customer 权限对不上**：OAuth 的 Google 账号能访问的是
+   `798-573-1642`（CUSTOMER_NOT_ENABLED，未启用的空壳）与 `416-830-6862`，
+   均不是 .env 里的 `215-156-2899`（浏览器跑 KP 用的那个）。
+   两条路二选一：给 OAuth 的这个 Google 账号授 215-156-2899 的访问权；
+   或换有权限的 Google 账号重跑 ads_auth.py。
+   ⚠️ 若 215-156-2899 经 MCC 管理，还要在 .env 配 GOOGLE_ADS_LOGIN_CUSTOMER_ID。
+
+堵点解除后：`keyword_volume.py --source api` dry-run 验证 → 建 cron
+`aeo_keyword_volume`（建议周一 11:45）。
