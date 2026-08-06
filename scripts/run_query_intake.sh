@@ -7,8 +7,9 @@
 # 分成两个 cron 会让「链断了」和「链有料了」在群里隔着几分钟分别出现，
 # 而真人要看的是合起来的那一眼。
 #
-# 两个脚本都是**只读**：不写 Notion（buyer_quote 只在显式 --commit 时写，
-# 本执行体不给这个参数），不调任何计费 API，零对外发送。
+# query_intake_health 只读；buyer_quote_queries 自 2026-08-05 Shawn 拍板
+# 「Query 库写入去人工化」后改为带 --commit 写库（此前本执行体刻意不给该参数）。
+# 两者都不调任何计费 API，零对外发送。
 #
 # 排在 a1_health（周五 14:30）之前，让周五复盘拿到「query 从哪来」的现状——
 # J1 第 5 类 AEO 内容的输入就是 Query 库，库不长那条产线就没有新料。
@@ -35,8 +36,8 @@ else
         || { echo "NO_INTAKE_REPORT" >&2; FAILED=1; }
 fi
 
-# --review 只写 outbox 审核清单，不带 --commit 即绝不写 Notion。
-if ! python3 scripts/buyer_quote_queries.py --review \
+# --review 写 outbox 审核清单；--commit 同时写 Query 库（2026-08-05 起自动写入）。
+if ! python3 scripts/buyer_quote_queries.py --review --commit \
         > "logs/buyer_quote_queries_stdout_${STAMP}.txt" \
         2> "logs/buyer_quote_queries_${STAMP}.err"; then
     echo "BUYER_QUOTE_FAILED" >&2

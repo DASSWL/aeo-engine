@@ -30,7 +30,11 @@ render:
   #    32 是**实测最坏形态**的行数（周一 + 台账待签发与超时两行都出现），
   #    定成 32 是为了让简报永不触发截断——截断一条真简报比长一点更糟。
   #    想要回一屏：把 sections.review_links.enabled 改成 false，上限调回 25。
-  max_lines: 32
+  #
+  # 2026-08-05 再从 32 提到 37：Query 库写入去人工化新增 5 条时刻表行
+  #    （每日 1 条「AI 建议入库」+ 周一 3 条 + 周五 1 条），最坏形态是
+  #    周一 32+4=36，留 1 行余量取 37。原则不变：永不触发截断。
+  max_lines: 37
   overflow_marker: "…（超出 {max} 行上限已截断，完整版见 outbox 原文）"
   header: "☀️ AEO Engine · 今日简报 {date}（{weekday}）"
   weekday_names: ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
@@ -96,6 +100,11 @@ schedule:
       label: "LinkedIn 日小扫"
       one_liner: "扫自己帖子的互动者与 profile 访客"
       days: [1, 2, 3, 4, 5, 6, 7]
+    - time: "11:00"
+      sort: "11:00"
+      label: "AI 建议入库"
+      one_liner: "探测追问的候选池自动写 Query 库，空则静默"
+      days: [1, 2, 3, 4, 5, 6, 7]
     - time: "全天"
       sort: "23:59"
       label: "回执监听"
@@ -110,6 +119,26 @@ schedule:
       label: "周批扫"
       one_liner: "LinkedIn 三组搜索加 Reddit 存量帖，首月盯跑"
       days: [1]
+    - time: "11:30"
+      sort: "11:30"
+      label: "GSC 入库"
+      one_liner: "Search Console 真实 query 自动写 Query 库"
+      days: [1]
+    - time: "12:00"
+      sort: "12:00"
+      label: "扫描原话入库"
+      one_liner: "周批扫的 Reddit/LinkedIn 原话自动写 Query 库"
+      days: [1]
+    - time: "13:00"
+      sort: "13:00"
+      label: "Apollo 名单"
+      one_liner: "按 segment 拉名单配对入水箱，含招聘公司反查"
+      days: [1]
+    - time: "14:00"
+      sort: "14:00"
+      label: "进料链诊断"
+      one_liner: "七条进料链断点诊断 + 买家原话入库"
+      days: [5]
     - time: "15:00"
       sort: "15:00"
       label: "复盘包"
