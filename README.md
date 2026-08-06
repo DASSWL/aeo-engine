@@ -923,3 +923,93 @@ www google com search video (1K – 10K)             yahoo video search (1K – 
 `serp_scan.py:72` 按 `月搜索量` 降序取 top-N，空值排最后。
 这 37 行的 `月搜索量` 全空，所以它们在 SERP 选词里**永远排最后**——
 明明有量级信息，只是不在那一列。要不要让 `serp_scan` 也读 `搜索量区间`，是另一个决定。
+
+---
+
+# 2026-08-05 收尾之二：噪音归档 / serp_scan 认区间 / Google Ads token
+
+## ① Phase 0 changelog 已补
+
+Phase 0 实现结果页新增「六、字段表变更 changelog」，记录当天两次解冻的内容、理由、
+回读结果，以及连带的三处脚本口径变更。
+
+§一.5 那张「Query 库 7/7」的核对表**刻意没有改写**，只在标题下加了一行警示指向 changelog——
+那张表是「2026-08-04 建了什么」的记录，改掉就没有历史了。同 Phase 3 §七⑥ 的处置口径。
+
+## ② 五条噪音已归档，Query 库 47 → 42 行
+
+Shawn 确认全是噪音：`music search` / `search song` / `pim dam system` /
+`www google com search video` / `yahoo video search`。
+
+归档走三道闸（文本在确认清单里 + 来源是 Keyword Planner + 状态是候选），
+先 dry-run 打印五行再执行，回读确认全部不在库、原 10 行探测问题未被触碰。
+**Notion 归档可从回收站恢复，不是永久删除。**
+
+### ⚠️ 还有三条同类的，Shawn 没有裁到
+
+它们和已确认的那批是同一种东西（搜索引擎导航词，不是买家在找解决方案）：
+
+```
+yahoo search video                  100 – 1K
+www google com search video download 100 – 1K
+www google search video             10 – 100
+```
+
+**我没有自作主张扩大删除范围**——确认了五条就只删五条。要一并归档说一声。
+
+## ③ serp_scan 改为认 `搜索量区间`
+
+`pick_queries` 此前只看 `月搜索量`，于是桶化来的 37 行（月搜索量全空）
+在 SERP 选词里永远排最后，明明有量级信息只是不在那一列。
+
+现在两种量都认，排序用区间**下界**（`config/kp_buckets.yaml` 的 `sort_floor`）：
+
+| 情况 | 排序量级 |
+|---|---|
+| 有 `月搜索量` | 精确值本身 |
+| 有 `搜索量区间` | 下界（`1K – 10K` → 1000） |
+| 两者皆无 | 排最后 |
+
+**为什么取下界不取中值**：下界是「至少这么多」，是这条区间能保证的事实。
+拿中值（5000）去压一个精确值 200 是拿推断压过测量；拿下界（1000）比，
+仍然赢，但赢在一个不会错的数上。**该数只用于排序，永不写库。**
+
+实测选词顺序（`reverse video search` 从「永远最后」变成第 1）：
+
+```
+ 1. reverse video search              区间下界（10K – 100K）
+ 2. google video search               区间下界（1K – 10K）
+ 3. video finder                      区间下界（1K – 10K）
+ …
+```
+
+这是 `serp_scan.py` 第一次被改动。
+
+## ④ Google Ads developer token 已入 .env
+
+`GOOGLE_ADS_DEVELOPER_TOKEN` 已写入（`.env` 已 gitignore，git 全历史扫描零命中）。
+写入未经过 shell 命令行，避免进 shell history。
+
+### ⚠️ 但路径 2 仍然跑不了，两个原因
+
+**一、还缺 4 项凭据。** Google Ads API 要的是 developer token **加** OAuth：
+
+```
+GOOGLE_ADS_DEVELOPER_TOKEN   ✅ 已设置
+GOOGLE_ADS_CLIENT_ID         ❌ 缺
+GOOGLE_ADS_CLIENT_SECRET     ❌ 缺
+GOOGLE_ADS_REFRESH_TOKEN     ❌ 缺
+GOOGLE_ADS_CUSTOMER_ID       ❌ 缺
+```
+
+**二、`--source api` 那条路根本没有实现。** `keyword_volume.py` 的 api 分支
+**无条件**调 `missing_credential` 退出——五项全齐它也只会报「缺 0 项」然后退出码 2。
+Phase 2 当时写的「接口留着，实现未接」字面为真：**API 调用一行都没写。**
+
+所以凭据到齐之后还有一步工程活：接 `KeywordPlanIdeaService`。
+
+### ⚠️ 还要确认 token 的 access level
+
+Google 的 developer token 分 Test / Basic / Standard。**Test 级只能查测试账号**，
+返回的是假数据。若当前是 Test 级，接通了也拿不到真实搜索量——
+先在 Google Ads 后台 API Center 确认它的级别，再决定要不要动工。

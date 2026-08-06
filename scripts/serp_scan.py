@@ -12,7 +12,7 @@
    这一条需要真人拍板（加字段 / 换库 / 就留在日志），已在输出的 schema_gap 里标明。
 
 用法：
-    python3 scripts/serp_scan.py                         # dry-run，取 Query 库月搜索量前 N
+    python3 scripts/serp_scan.py                         # dry-run，取 Query 库按量前 N
     python3 scripts/serp_scan.py --queries "a" "b" "c"    # 指定 query（首批三个用这个）
     python3 scripts/serp_scan.py --commit
 """
@@ -55,8 +55,23 @@ def month_usage(prefix):
     return used, files
 
 
-def pick_queries(rows, top_n):
-    """Query 库按月搜索量降序取前 N。搜索量为空的排在最后（未知不等于 0）。"""
+def pick_queries(rows, top_n, sort_floor):
+    """Query 库按「量」降序取前 N。没有任何量证据的排在最后（未知不等于 0）。
+
+    「量」有两种来源，2026-08-05 Shawn 拍板后两种都认：
+      * `月搜索量`  —— 精确值，直接用
+      * `搜索量区间` —— Phase 0 字段表当天解冻加的第 8 列。取 `sort_floor`
+                       给的**下界**参与排序，不取中值。
+
+    为什么取下界：下界是「至少这么多」，是这条区间能保证的事实。
+    拿中值（1K–10K → 5000）去压一个精确值 200，是拿推断压过测量；
+    拿下界（1000）比，仍然赢，但赢在一个不会错的数上。
+
+    这个数**只用于排序，永不写库**——写进 Query 库的仍然只有区间字符串本身。
+
+    改这一条之前，本函数只看 `月搜索量`，于是桶化来的行（月搜索量全空）
+    在 SERP 选词里永远排最后，明明有量级信息只是不在那一列。
+    """
     items = []
     for r in rows:
         props = r.get("properties", {})
@@ -65,11 +80,21 @@ def pick_queries(rows, top_n):
             continue
         vol_prop = props.get("月搜索量") or {}
         vol = vol_prop.get("number") if vol_prop.get("type") == "number" else None
+        rng = ac.rich_text(props, "搜索量区间").strip() or None
         ds_prop = props.get("数据来源") or {}
         ds = (ds_prop.get("select") or {}).get("name") if ds_prop.get("type") == "select" else None
-        items.append({"query 文本": text, "月搜索量": vol,
+
+        if vol is not None:
+            mag, basis = vol, "月搜索量（精确值）"
+        elif rng and rng in sort_floor:
+            mag, basis = sort_floor[rng], "搜索量区间下界（{}）".format(rng)
+        else:
+            mag, basis = None, ("区间 {!r} 不在 sort_floor 表里".format(rng)
+                                if rng else "无任何量证据")
+        items.append({"query 文本": text, "月搜索量": vol, "搜索量区间": rng,
+                      "排序量级": mag, "排序依据": basis,
                       "数据来源": ds, "page_id": r["id"]})
-    items.sort(key=lambda x: (x["月搜索量"] is None, -(x["月搜索量"] or 0)))
+    items.sort(key=lambda x: (x["排序量级"] is None, -(x["排序量级"] or 0)))
     return items[:top_n], len(items)
 
 
@@ -117,18 +142,24 @@ def main():
         serp_cfg = scan_cfg["serp"]
         env = ac.load_env()
 
-        # 选词：显式指定优先，否则读 Query 库按月搜索量取前 N
+        # 选词：显式指定优先，否则读 Query 库按量取前 N
+        #（量 = 月搜索量精确值，或 搜索量区间 的下界。见 pick_queries）
         if args.queries:
-            targets = [{"query 文本": q, "月搜索量": None, "数据来源": None,
+            targets = [{"query 文本": q, "月搜索量": None, "搜索量区间": None,
+                        "排序量级": None, "排序依据": "--queries 显式指定",
+                        "数据来源": None,
                         "page_id": None, "selected_by": "--queries 显式指定"}
                        for q in args.queries]
             query_db_total = None
         else:
             notion = ac.Notion(env["NOTION_TOKEN"], env["NOTION_VERSION"])
             rows = notion.query_all(env["DS_QUERY"])
-            targets, query_db_total = pick_queries(rows, serp_cfg["top_n_by_volume"])
+            bucket_cfg = ac.load_config("kp_buckets.yaml")
+            targets, query_db_total = pick_queries(
+                rows, serp_cfg["top_n_by_volume"], bucket_cfg["sort_floor"])
             for t in targets:
-                t["selected_by"] = "Query 库月搜索量前 {}".format(serp_cfg["top_n_by_volume"])
+                t["selected_by"] = "Query 库按量前 {}（月搜索量精确值或搜索量区间下界）".format(
+                    serp_cfg["top_n_by_volume"])
 
         now = sc.now_local(th)
         used, usage_files = month_usage(now.strftime("%Y-%m"))
@@ -173,6 +204,8 @@ def main():
             results.append({
                 "query 文本": t["query 文本"],
                 "月搜索量": t["月搜索量"],
+                "搜索量区间": t.get("搜索量区间"),
+                "排序依据": t.get("排序依据"),
                 "占位者": occupants,
                 "评测站页": review_pages,
                 "占位者数": len(occupants),
