@@ -1488,3 +1488,84 @@ The Pokémon Company International（均美国），payload 被 Apollo 正常接
 
 **边界（如实声明）**：country 只对今后新入箱的行有值，存量 74 行为空——补历史行
 要按人再付富化费，未拍板不做。冷链 sequence_list 只搜公司不富化，不受 country 列影响。
+
+---
+
+# 2026-08-06:J1 内容产线落成(Shawn 拍板:建立流程,计入台账)
+
+## 先纠正一个误会:闸门没有被放开
+
+Shawn 原话是「J1 闸门放开,等攒够 5 条太久了」。实测结论:**5 条 win/loss 的
+触发线只挡对比页(闸门②),从来不挡 AEO 内容**。AEO 内容此前被拒是因为请求
+没带证据编号(闸门①),而水箱现在 73 行,其中有真实原话的行足够过闸。
+所以本次**没有改任何闸门、任何阈值**——用水箱真实 SIG 证据合法通过,
+`gates.yaml` 一字未动,五道闸的语义与顺序原样保留。
+
+## 建了什么
+
+三段式,与 J4 draft_runner 同构(LLM 不进 Python):
+
+| 文件 | 干什么 |
+|---|---|
+| `config/j1.yaml` | 产线全部业务值:选题类型/来源白名单、证据筛选、事实层路径、篇数上限 |
+| `scripts/j1_runner.py` | plan(选题+证据候选+写 prompt)与 assemble(落盘+台账+回读)两个分支 |
+| `scripts/run_j1_draft.sh` | 执行体:skill 暂存 → plan → claude -p --model opus → assemble --commit |
+
+纪律逐条继承:unset wrapper(订阅登录,不烧 API)、默认 dry-run、
+plan 文件只在 `--emit-prompt` 时写(Phase 3 §七④ 覆写事故的教训)、
+**写台账走且只走 `j1_evidence.py` 子进程**(单一写路径,闸门不复制)、
+写后独立回读(重新拉台账核对「面向」,不信 create 回执,回读不一致退出码非 0)。
+
+## 选题队列的来源白名单(首轮 dry-run 就踩到的坑)
+
+不加白名单时,队列头两名是 `yahoo search video`、`www google com search video
+download`——KP 补量链进来的导航词,不是能回答的问法。这正是裁决①代价那句
+「排 AEO 内容优先级前必须先看数据来源列」的具体形态。修法:`j1.yaml` 的
+`queue.sources_allowed` 只放「市场在问」形态的来源(探测问题 / A1 扫描 /
+买家原话 / AI 建议 / Search Console),KP 与 SERP 观察刻意排除。
+
+## 证据的用法边界
+
+prompt 里只给 SIG 编号 + 原话摘录,**不给人名不给链接**;文章只许拿证据校准
+痛点形态,不许出现当事人身份、公司名或原话直引。带「非原文引用」标记的
+Apollo 名单行不进候选(与 J4 evidence_gate 同一判定)。配不上证据的选题
+要求 claude 输出 REFUSE 包,不许硬写——没有证据的内容只能靠编。
+
+## 事实层约束
+
+正文可引用的产品事实 = `vivu_web/data/facts.json` 里 `status=已确认` 的字段,
+plan 阶段解析后逐条注入 prompt,并显式声明三条负面约束:无公开定价、
+无已确认 benchmark、无具名客户。待真人补的字段视同不存在。
+
+## 首日产出(全部已实测)
+
+| 产出 | 台账行 | 证据 |
+|---|---|---|
+| 样稿|search a video library by what was said in it(会话内手写,同一产线纪律) | `3b4059d9…c650` | SIG-ed099b98 |
+| 样稿|pull highlights from livestream recordings(同上) | `3b4059d9…a495` | SIG-3dc7579e, SIG-46131a5a |
+| 自动|how to find an old brand video we already made(产线端到端) | `3b4059d9…fec9` | SIG-3dc7579e, SIG-ed099b98 |
+| 自动|search video by spoken words(产线端到端) | `3b4059d9…30da` | SIG-ed099b98, SIG-3dc7579e |
+
+四行状态全部「草稿」,独立回读全部一致。正文在 `outbox/j1_draft_*.md` 与
+`outbox/j1_sample_*.md`。**签发动作 = Shawn 在 Notion 把「状态」改「已签发」**,
+未签发的行 J2 的 CI lint 会拒绝上线,J3 也引用不到。
+
+## 新增调度
+
+| 任务 | cron | 干什么 |
+|---|---|---|
+| `aeo_j1_draft` | `0 9 * * 3` @ America/Los_Angeles · vivu-sales · `mode none` → telegram `-5261250225` | 每周三产至多 2 篇(`j1.yaml: max_per_run`),群里只推通知(标题+路径+台账链接),正文不进群 |
+
+选周三:避开周一的三个周批扫描与 GSC/SERP 链,也避开周五复盘。
+每周 2 篇的上限是刻意的:签发是真人动作,产得比签得快只会堆库存。
+
+## 边界(如实声明)
+
+- 选题池现在只剩 1 条痛点级任务式 query 没写(`how to pull highlights…` 与
+  `how to search…` 已登记,本次自动跑掉 2 条)。**下周三如果进料链没带来新
+  痛点级 query,cron 会正确输出 NO_DRAFTS 静默**——这不是故障,是进料问题,
+  进料链现状见「Query 库进料链」各节。
+- `search video by spoken words` 与已登记的 `how to search a video library by
+  what was said in it` 选题语义相近,产线不做语义去重(只做逐字归一去重)。
+  两篇是否都签发、或合并成一篇,是签发环节的真人判断。
+- J2 发布环节(签发后怎么上 vivu.ai)本次未动,仍按 Phase 3 §J2 的既有契约走。
