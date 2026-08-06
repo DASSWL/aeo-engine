@@ -1467,3 +1467,24 @@ The Pokémon Company International（均美国），payload 被 Apollo 正常接
   水箱行没有存地域字段，确认国别要么人工点开 profile，要么花富化 credit 反查。
 - `person_locations` 六国口径是冷链当时的推演值，暖链沿用；要收紧到 US-only
   改 `outreach.yaml` 顶层 `targeting` 一处即可。
+
+### 同日追加：三项拍板已执行（2026-08-06）
+
+上节「遗留」三项 Shawn 拍板（原话「淘汰。收进程 us only。存 apollo 返回的 country」），
+已全部执行：
+
+1. **存量污染行淘汰**：inbox 里 10 条疑似非目标地区行（Bonia ×2、Ulearn ×2、
+   Turning Red Media ×2、Creator Engine ×2、Zero1 by Zerodha ×2）全部
+   inbox → 淘汰。改前逐行断言「状态=inbox 且 来源=Apollo」，改后独立回读核对
+   10/10 通过，操作留档 `logs/manual_cull_2026-08-06.json`。
+   Luthfi Nur（ONIC，印尼，已「触达中」）不在本批——已真实触达的行怎么处理仍待定。
+2. **地域口径收紧 US-only**：outreach.yaml 顶层 `targeting.person_locations`
+   只留 United States，冷暖两链同时生效。
+3. **country 落库**：水箱 schema 新加 `country` select 列（加列有拍板，PATCH 后
+   回读核对通过）。apollo_poll 三处配合：person_record 捕获（预览恒打码，实测只有
+   has_country 布尔，留字段为兜底）、enrich_rows 用 bulk_match 返回值覆盖
+   （1 credit 实测：country="United States" 正常返回，1315 → 1314）、
+   pipeline_props 写库（空值走 select None，不脏数据）。
+
+**边界（如实声明）**：country 只对今后新入箱的行有值，存量 74 行为空——补历史行
+要按人再付富化费，未拍板不做。冷链 sequence_list 只搜公司不富化，不受 country 列影响。

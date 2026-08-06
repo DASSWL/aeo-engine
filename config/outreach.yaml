@@ -366,15 +366,12 @@ receipt:
 # 发现一批印尼/埃及/德国/印度/菲律宾/立陶宛的 LinkedIn profile，全部来自
 # 「Apollo poll segment_search」入箱的行。两条链打的是同一批 segment，
 # 地域口径没有理由不同，故收口为一处。
+#
+# 2026-08-06 Shawn 拍板：收紧为 US-only（原六国英语区口径是冷链当时的推演值）。
 # ---------------------------------------------------------------------------
 targeting:
   person_locations:
     - "United States"
-    - "Canada"
-    - "United Kingdom"
-    - "Australia"
-    - "New Zealand"
-    - "Ireland"
 
 # ---------------------------------------------------------------------------
 # Apollo 冷 outreach sequence

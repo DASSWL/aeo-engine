@@ -223,6 +223,9 @@ def enrich_rows(session, a_cfg, api_key, rows):
                 row["人名"] = full
             if m.get("linkedin_url"):
                 row["来源链接"] = m["linkedin_url"]
+            # 富化返回的 country 比预览记录权威，有值就覆盖
+            if m.get("country"):
+                row["country"] = m["country"]
             if not row.get("公司"):
                 row["公司"] = (m.get("organization") or {}).get("name") or ""
             row["enriched"] = True
@@ -241,6 +244,12 @@ def person_record(raw, segment, role):
         "公司": org.get("name") or "",
         "title": raw.get("title") or "",
         "来源链接": raw.get("linkedin_url") or "",
+        # 人的地域，不是公司的。2026-08-06 Shawn 拍板入箱时落库，
+        # 让「筛选是否生效」在水箱里可见，不用点开 profile 才知道。
+        # 预览记录里这个字段是打码的（只有 has_country 布尔，2026-08-06 实测），
+        # 真实值由富化步 bulk_match 覆盖写入（同日 1 credit 实测有值）；
+        # 这里保留字段是为了万一 Apollo 放开预览时白捡，平时恒为空串。
+        "country": (raw.get("country") or "").strip(),
         "segment": segment,
         "role": role,
         "org_id": org.get("id") or (org.get("name") or "").strip().lower(),
@@ -343,8 +352,13 @@ def read_backfill(path):
 # --------------------------------------------------------------------------
 
 def pipeline_props(row, now_iso, today, note_prefix):
-    """水箱字段映射。字段名逐字取自 Phase 0 核对清单，一个字都不许改。"""
+    """水箱字段映射。字段名逐字取自 Phase 0 核对清单，一个字都不许改。
+
+    例外：country 列是 2026-08-06 Shawn 拍板新加的（非美国 profile 入箱事故后，
+    要求把 Apollo 返回的人级地域落库），不在 Phase 0 清单里。
+    """
     return {
+        "country": sc.p_select(row.get("country") or ""),
         "人名": sc.p_title(row["人名"]),
         "公司": sc.p_text(row["公司"]),
         "角色标签": sc.p_select(row["角色标签"]),
