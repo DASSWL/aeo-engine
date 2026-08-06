@@ -119,7 +119,8 @@ def main():
         cfg = ac.load_config("scan.yaml")["apollo"]
 
         outreach = ac.load_config("outreach.yaml")
-        locations = ((outreach.get("sequence") or {}).get("targeting") or {}).get("person_locations") or []
+        # 2026-08-06 起地域口径是顶层 targeting（冷暖两条链共用），不再挂在 sequence 下
+        locations = ((outreach.get("targeting") or {}).get("person_locations")) or []
         if args.no_locations:
             locations = []
 

@@ -1433,3 +1433,37 @@ Shawn 要求把当日 SLA 49 项全部备上草稿。执行路径：
 ② 49 行冷却时间戳已盖，**未来 72h 的 08:30 草稿任务大概率 NO_DRAFTS**，
 新入箱的行不受影响；③ 当日 08:30 cron 的原始 plan 与 claude 输出备份在
 `logs/*_2026-08-06.cron_orig.*`，三轮回填的 claude 输出在 `logs/j4_claude_2026-08-06.backfill_c[123].txt`。
+
+## 水箱链补上地域筛选：非美国 profile 入箱事故（2026-08-06）
+
+**现象**：Shawn 处理当日 J4 草稿时发现水箱里一批非目标地区的 LinkedIn profile
+（印尼 ONIC/BOOM Esports、马来西亚 Bonia、德国 G2、印度 AnyMind/Zerodha 系、
+菲律宾、立陶宛、埃及……），全部是 8/4 首轮 `apollo_poll --commit` 入箱的行。
+
+**根因**：地域筛选 8/5 只加给了冷链（commit 4a31bc0，当时 outreach.yaml 注释
+原话「apollo_poll 的水箱链不受影响」）。暖链 `apollo_poll.py` 的 people search
+从未带 `person_locations`，Apollo 全球命中；segments.yaml 的行业筛选又早已降级成
+关键词标签（Phase 2 §七 疑点②），宽而糊的命中面叠加无地域约束，东南亚公司大量进箱。
+50 行 Apollo 来源里，肉眼可辨的非目标地区约 20 行。
+
+**改动**：
+
+- `config/outreach.yaml`：`person_locations` 从 `sequence.targeting` 提升为顶层
+  `targeting`——冷链暖链没有理由用两套地域口径，收口为一处（US/CA/UK/AU/NZ/IE）。
+- `scripts/sequence_list.py`：改读顶层 `targeting`。
+- `scripts/apollo_poll.py`：`build_payload` 增加 `locations` 参数，segment 发现、
+  backfill 定向反查、two_phase 补齐三条路径全部带上——补齐搜索不带的话，
+  给一家美国公司配对时仍会补进别国的人。运行留档 JSON 新增 `person_locations` 字段。
+
+**实测**（dry-run + --no-enrich，搜索零 credit）：D 段修复前入箱的是
+Bonia（马来西亚）/ONIC（印尼），修复后同条件命中 SharkNinja、
+The Pokémon Company International（均美国），payload 被 Apollo 正常接受。
+
+**遗留（待 Shawn 拍板，本次未动数据）**：
+
+- 8/4 已入箱的污染行：14 条已被 Shawn 手动标「淘汰」；仍有约 10 条疑似非目标地区
+  的行留在 inbox（Bonia ×2、Ulearn ×2、Turning Red Media ×2、Creator Engine ×2、
+  Zero1 by Zerodha ×2），另有 Luthfi Nur（ONIC，印尼）已是「触达中」。
+  水箱行没有存地域字段，确认国别要么人工点开 profile，要么花富化 credit 反查。
+- `person_locations` 六国口径是冷链当时的推演值，暖链沿用；要收紧到 US-only
+  改 `outreach.yaml` 顶层 `targeting` 一处即可。

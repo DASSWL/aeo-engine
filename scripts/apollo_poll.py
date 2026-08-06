@@ -55,13 +55,19 @@ def employee_ranges(spec_value):
     return [str(spec_value).replace("-", ",")]
 
 
-def build_payload(apollo_cfg, titles, per_page, page=1, org_name=None):
+def build_payload(apollo_cfg, titles, per_page, page=1, org_name=None, locations=None):
     """一次 people search 的完整请求体。
 
     ⚠️ industries 的降级：Apollo 的行业筛选要 organization_industry_tag_ids（内部 ID），
        segments.yaml 里写的是行业名文本。这里把行业名并进 q_organization_keyword_tags
        当关键词用——**这是降级，不等价于行业筛选**，命中面会更宽也更糊。
        首轮实测时要专门看这一条（segments.yaml 疑点②）。
+
+    locations：person_locations 地域筛选，口径在 outreach.yaml 顶层 targeting。
+       2026-08-06 修复：此前只有冷链 sequence_list 带地域，水箱链的搜索是全球命中，
+       Shawn 在 J4 草稿里发现一批印尼/埃及/德国/印度等地的 LinkedIn profile，
+       全部来自本脚本入箱的行。定向反查（org_name 路径）与补齐搜索同样要带——
+       否则给一家美国公司配对时会补进别国的人。
     """
     seg_apollo = apollo_cfg["segment_conditions"]
     tags = list(seg_apollo.get("keywords") or []) + list(seg_apollo.get("industries") or [])
@@ -70,6 +76,8 @@ def build_payload(apollo_cfg, titles, per_page, page=1, org_name=None):
         "page": page,
         "per_page": per_page,
     }
+    if locations:
+        payload["person_locations"] = list(locations)
     if org_name:
         payload["q_organization_name"] = org_name
     else:
@@ -118,7 +126,7 @@ def cheap_key(person_name, company):
 
 
 def complete_pairs(session, a_cfg, api_key, seg_body, segment, people,
-                   max_companies, max_calls):
+                   max_companies, max_calls, locations=None):
     """两段式配对的第二段：给单边公司补齐缺失那一侧。
 
     输入的 people 是发现阶段（每段两次搜索）的结果。做三件事：
@@ -154,7 +162,7 @@ def complete_pairs(session, a_cfg, api_key, seg_body, segment, people,
         body = call_apollo(session, a_cfg["base_url"], a_cfg["people_search_path"],
                            a_cfg["auth_header"], api_key,
                            build_payload(cond, want, a_cfg["per_page"],
-                                         org_name=slot["公司"]))
+                                         org_name=slot["公司"], locations=locations))
         calls += 1
         target = norm_org(slot["公司"])
         for raw in (body.get("people") or []) + (body.get("contacts") or []):
@@ -377,6 +385,11 @@ def main():
         caps = scan_cfg["caps"]
         env = ac.load_env()
 
+        # 地域口径：outreach.yaml 顶层 targeting，与冷链 sequence_list 共用一份。
+        # 2026-08-06 修复前这条链不带地域，全球命中（见 build_payload 注释）。
+        outreach_cfg = ac.load_config("outreach.yaml")
+        locations = ((outreach_cfg.get("targeting") or {}).get("person_locations")) or []
+
         max_companies = args.limit_companies or a_cfg["max_companies_per_segment"]
         seg_keys = args.segments or list(seg_cfg["segments"].keys())
         unknown = [s for s in seg_keys if s not in seg_cfg["segments"]]
@@ -400,10 +413,10 @@ def main():
                     "requests": [
                         {"role": ROLE_PAIN,
                          "payload": build_payload(cond, titles["pain_feeler"],
-                                                  a_cfg["per_page"])},
+                                                  a_cfg["per_page"], locations=locations)},
                         {"role": ROLE_DM,
                          "payload": build_payload(cond, titles["decision_maker"],
-                                                  a_cfg["per_page"])},
+                                                  a_cfg["per_page"], locations=locations)},
                     ],
                 })
         for bf in backfill_rows:
@@ -424,10 +437,12 @@ def main():
                 "requests": [
                     {"role": ROLE_PAIN,
                      "payload": build_payload(cond, titles["pain_feeler"],
-                                              a_cfg["per_page"], org_name=bf["company"])},
+                                              a_cfg["per_page"], org_name=bf["company"],
+                                              locations=locations)},
                     {"role": ROLE_DM,
                      "payload": build_payload(cond, titles["decision_maker"],
-                                              a_cfg["per_page"], org_name=bf["company"])},
+                                              a_cfg["per_page"], org_name=bf["company"],
+                                              locations=locations)},
                 ],
             })
 
@@ -479,7 +494,7 @@ def main():
                 people, extra, completion = complete_pairs(
                     session, a_cfg, api_key, seg_cfg["segments"][entry["segment"]],
                     entry["segment"], people, max_companies,
-                    a_cfg["max_completion_calls_per_segment"])
+                    a_cfg["max_completion_calls_per_segment"], locations=locations)
                 calls += extra
 
             # 公司数上限交给 group_and_pair 在分组之后施加，这里不做任何预截断。
@@ -588,6 +603,7 @@ def main():
             "wrote_notion": mode == "commit",
             "api_calls": calls,
             "segments": seg_keys,
+            "person_locations": locations or "（未加地域筛选）",
             "max_companies_per_segment": max_companies,
             "per_segment_row_cap": caps["per_segment_per_round"],
             "group_stats": stats,

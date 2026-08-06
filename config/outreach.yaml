@@ -346,6 +346,37 @@ receipt:
   verified_with_row: "3b3059d9-6933-81d1-9876-faa73adaa1e7"  # Luthfi Nur / ONIC Esports
 
 # ---------------------------------------------------------------------------
+# 全产线共用的 Apollo 人群筛选口径（冷链 sequence_list + 暖链 apollo_poll 都读这里）
+#
+# 【推演待校准】spec 未规定地域。加这一条的依据是 2026-08-05 首轮实测：
+# 400 家里 13 家（3.2%）是非拉丁字母公司名（韩国、中国、德国），
+# 而 seq_A_v1 发的是英文冷邮件——给这些公司发英文信转化基本为零，
+# 却要为每个人付一份富化费。
+#
+# 根因是 Phase 2 §七 记过的那条：Apollo 的行业筛选被降级成关键词标签
+# （它要 organization_industry_tag_ids 内部 ID，segments.yaml 写的是行业名文本），
+# 命中面又宽又糊。地域筛选是在不解冻 segments.yaml 的前提下收窄命中面的办法。
+#
+# 首轮跑完要对照「加之前 vs 加之后」的噪音率，不能只看加了之后的数字——
+# 分不清是筛选起了作用还是采样波动（sequence_list 留有 --no-locations 做对照）。
+#
+# 2026-08-06 从 sequence.targeting 提升为顶层共用口径。起因：地域筛选 08-05
+# 只加给了冷链（当时注释原话「apollo_poll 的水箱链不受影响」），暖链的
+# people search 一直不带 person_locations，全球命中——Shawn 在当天的 J4 草稿里
+# 发现一批印尼/埃及/德国/印度/菲律宾/立陶宛的 LinkedIn profile，全部来自
+# 「Apollo poll segment_search」入箱的行。两条链打的是同一批 segment，
+# 地域口径没有理由不同，故收口为一处。
+# ---------------------------------------------------------------------------
+targeting:
+  person_locations:
+    - "United States"
+    - "Canada"
+    - "United Kingdom"
+    - "Australia"
+    - "New Zealand"
+    - "Ireland"
+
+# ---------------------------------------------------------------------------
 # Apollo 冷 outreach sequence
 #
 # 出处：spec §J4「冷 outreach 闭环：Apollo sequence 按 segment 建」、
@@ -364,26 +395,8 @@ sequence:
   companies_per_segment_min: 200
   companies_per_segment_max: 400
 
-  # 候选池筛选条件（scripts/sequence_list.py 用；apollo_poll 的水箱链不受影响）
-  targeting:
-    # 【推演待校准】spec 未规定地域。加这一条的依据是 2026-08-05 首轮实测：
-    # 400 家里 13 家（3.2%）是非拉丁字母公司名（韩国、中国、德国），
-    # 而 seq_A_v1 发的是英文冷邮件——给这些公司发英文信转化基本为零，
-    # 却要为每个人付一份富化费。
-    #
-    # 根因是 Phase 2 §七 记过的那条：Apollo 的行业筛选被降级成关键词标签
-    # （它要 organization_industry_tag_ids 内部 ID，segments.yaml 写的是行业名文本），
-    # 命中面又宽又糊。地域筛选是在不解冻 segments.yaml 的前提下收窄命中面的办法。
-    #
-    # 首轮跑完要对照「加之前 vs 加之后」的噪音率，不能只看加了之后的数字——
-    # 分不清是筛选起了作用还是采样波动。
-    person_locations:
-      - "United States"
-      - "Canada"
-      - "United Kingdom"
-      - "Australia"
-      - "New Zealand"
-      - "Ireland"
+  # 候选池的地域筛选已提升为顶层 targeting.person_locations（见文件上方），
+  # sequence_list 与 apollo_poll 共用一份口径。
   # 建成后的状态。Apollo 侧字段名见 scripts/apollo_sequence.py 的注释。
   create_as_active: false
   # 步骤：本次只建 A 段（第一封）。后续 B/C 段由真人决定后再加。
