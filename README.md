@@ -1268,3 +1268,20 @@ ai video editing studio             7 曝光 / 排名 89.9
 Shawn 2026-08-05 点名：`viva`（VivaVideo）、`vivo`。
 
 结果：我方品牌 527 · 第三方品牌 16 · 待写入 **10**。
+
+### 待确认（2026-08-05 Shawn：先留着，不着急）
+
+15 条「判成我方品牌但接近阈值」的里，**没有一条是真 query**——
+所以问题不是要不要捞回候选池，而是**有几条该从我方品牌重标成第三方**，
+那会改变 branded 基线。两处最要紧的模糊项：
+
+| 词族 | 规模 | 为什么模糊 |
+|---|---|---|
+| `vibu` | **11 条 / 3834 曝光** | `vibu ai` 单条就 3753 曝光。若 `vibu studio` 是别人的产品而非 `vivu` 的错拼，我方 branded 基线要掉一大截 |
+| `vuvi` / `vuvido` | 31 条 / 1004 曝光 | 倾向是错拼链（`vivu video`→`vivuvideo`→`vuvideo`→`vuvido`），但 `vuvido style` / `vuvido app` / `vuvido .com` 带产品化后缀 |
+
+看着像真第三方产品的三条：`vosu ai`（同族有 `vosu.ai video to video`）、
+`vidu ai`（同族有 `vidu online`，Vidu 是真实视频生成模型）、
+`vidflux`（单条但排名 3.8——排这么高通常意味着页面上出现过这个名字）。
+
+确认后填进 `config/gsc.yaml` 的 `brand.third_party_tokens` 即可。
