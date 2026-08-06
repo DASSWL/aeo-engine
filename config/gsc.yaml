@@ -20,11 +20,14 @@
 
 meta:
   version: "0.1"
-  status: draft            # draft | approved —— approved 之前 --commit 拒绝写库
+  status: approved         # draft | approved —— approved 之前 --commit 拒绝写库
   drafted_at: "2026-08-05"
   drafted_for: "Query 库进料链：Search Console 路径（Shawn 2026-08-05 指定新建）"
-  reviewed_by: null
-  reviewed_at: null
+  reviewed_by: "Shawn"
+  reviewed_at: "2026-08-05"
+  # 2026-08-05 Shawn 拍板：Query 库写入不再等真人逐次 --commit，改为
+  # 「链路自动写入 + Shawn 定期 review 库」。过滤参数仍属【推演待校准】，
+  # 定期 review 时重点看 dropped_as_brand_borderline 与新写入行的成色。
   observed: >-
     2026-08-05 用 Claude in Chrome 人工看过一轮（sc-domain:vivu.ai，16 个月）：
     总 11.6K 点击 / 149K 曝光 / 平均排名 4.8；排除含 "vivu" 的词后

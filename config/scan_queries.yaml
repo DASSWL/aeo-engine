@@ -19,12 +19,14 @@
 
 meta:
   version: "0.1"
-  status: draft            # draft | approved —— approved 之前 --commit 拒绝写库
+  status: approved         # draft | approved —— approved 之前 --commit 拒绝写库
   drafted_at: "2026-08-05"
   drafted_for: "Query 库进料链：A1 扫描路径（Shawn 2026-08-05 指定新增）"
-  reviewed_by: null
-  reviewed_at: null
-  unverified: "水箱 `来源 = A1 扫描` 当前 0 行，本文件全部规则未经真实数据验证"
+  reviewed_by: "Shawn"
+  reviewed_at: "2026-08-05"
+  # 2026-08-05 Shawn 拍板：Query 库写入不再等真人逐次 --commit，改为
+  # 「链路自动写入 + Shawn 定期 review 库」。
+  unverified: "水箱 `来源 = A1 扫描` 当前 0 行，规则未经真实数据验证——首轮周批扫出料后，定期 review 时对着真实行复核抽取质量"
 
 data_source_value: "A1 扫描"     # Phase 0 字段表 2026-08-05 additive 解冻加的取值
 

@@ -1285,3 +1285,20 @@ Shawn 2026-08-05 点名：`viva`（VivaVideo）、`vivo`。
 `vidflux`（单条但排名 3.8——排这么高通常意味着页面上出现过这个名字）。
 
 确认后填进 `config/gsc.yaml` 的 `brand.third_party_tokens` 即可。
+
+---
+
+# 2026-08-05 收尾之三：Query 库写入去人工化（Shawn 拍板）
+
+三处改动，目标是「链路自动写库 + Shawn 定期 review 库」，不再逐次等真人 `--commit`：
+
+| 改动 | 文件 |
+|---|---|
+| `gsc.yaml` status → `approved` | `config/gsc.yaml` |
+| `scan_queries.yaml` status → `approved`（规则仍未经真实数据验证，首轮出料后 review 时复核） | `config/scan_queries.yaml` |
+| GSC 默认 `--source api`（CSV 降级路径保留） | `scripts/gsc_queries.py` |
+
+注意：脚本本身仍是默认 dry-run、写库仍要 `--commit` 参数——去掉的是「approved 闸门等真人」，
+不是 dry-run 纪律。自动化的写入由定时任务带 `--commit` 调用实现（调度待建，见当日对话记录）。
+GSC API 路径缺 `GSC_CLIENT_ID / GSC_CLIENT_SECRET / GSC_REFRESH_TOKEN` 三项，
+补齐步骤见 gsc_queries 一节的「真人要做的」。

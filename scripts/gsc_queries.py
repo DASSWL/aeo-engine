@@ -532,9 +532,10 @@ def main():
     parser = sc.base_parser(__doc__.splitlines()[0])
     parser.add_argument("--review", action="store_true",
                         help="把审核清单写进 outbox（由 outbox_sweep 转发）。不写 Notion")
-    parser.add_argument("--source", choices=("csv", "api"), default="csv",
-                        help="csv=解析 data/gsc/ 的 GSC 导出（默认，零凭据）；"
-                             "api=Search Console API（需 OAuth 三项）")
+    parser.add_argument("--source", choices=("csv", "api"), default="api",
+                        help="api=Search Console API（默认，需 OAuth 三项；"
+                             "2026-08-05 Shawn 拍板默认走 API，不等真人导 CSV）；"
+                             "csv=解析 data/gsc/ 的 GSC 导出（零凭据降级路径）")
     parser.add_argument("--csv-dir", default=None, help="默认 data/gsc/")
     args = parser.parse_args()
     mode = sc.resolve_mode(args)
