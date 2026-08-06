@@ -1,0 +1,142 @@
+# AEO Engine · Google Search Console → Query 库 的规则
+#
+# 这条链干什么：把**真人实际敲进 Google、并且让 vivu.ai 露过面**的 query 收进来。
+#
+# 它在六条链里的位置（2026-08-05 实测确认，别搞混）：
+#   • 唯一给**精确整数**的源（Keyword Planner 给桶、SERP 不给量）
+#   • 唯一**没有词数限制**的源（KP 拒绝超过 10 词，我们的长尾对话式 query 正好超）
+#   • 免费、已验证、有 16 个月存量
+#   • ⛔ 但它**只看得见我们已经露过面的词**——站上没有的品类，它永远是空的。
+#     所以它发现不了「市场有需求但我们完全不沾边」的词，那是 Keyword Planner 的活。
+#
+# ⛔⛔ 最要紧的一条纪律：**impressions 不是月搜索量，绝不写进 `月搜索量`。**
+#     impressions = 「我们出现了多少次」，不是「多少人搜了」。
+#     它被两件事过滤过：我们有没有内容、Google 排不排我们。
+#     一个词一个月一万人搜、我们从没露面 → impressions = 0。
+#     把它写进 `月搜索量` 是比 KP 桶中值更严重的掺假——
+#     桶中值至少还是在描述市场，impressions 描述的是我们自己。
+#     所以本链写进 Query 库的行，`月搜索量` 与 `搜索量区间` **都留空**，
+#     clicks / impressions / position 只落运行日志与审核清单。
+
+meta:
+  version: "0.1"
+  status: draft            # draft | approved —— approved 之前 --commit 拒绝写库
+  drafted_at: "2026-08-05"
+  drafted_for: "Query 库进料链：Search Console 路径（Shawn 2026-08-05 指定新建）"
+  reviewed_by: null
+  reviewed_at: null
+  observed: >-
+    2026-08-05 用 Claude in Chrome 人工看过一轮（sc-domain:vivu.ai，16 个月）：
+    总 11.6K 点击 / 149K 曝光 / 平均排名 4.8；排除含 "vivu" 的词后
+    仅 200 点击 / 13.7K 曝光 / 平均排名 14.6，且其中大部分仍是品牌拼写变体
+    （vibu ai / vi you ai / viyu ai / vuvu video …）。
+    真正的非品牌词全部落在「AI 视频生成 / 剪辑」品类、排名 88–95，
+    而 Query 库整库讲的是「检索已有素材」——**一条都没有**。
+    下面的过滤参数就是照这轮观察定的，仍属【推演待校准】。
+  brand_rule_measured: >-
+    品牌判定规则用上面那轮真实 query 做过离线自测（24 条品牌变体 + 20 条真词）：
+    品牌命中 23/24（漏 "vioai"，得分 0.444），真词保住 20/20，零误杀。
+    真词最高分 0.333（"how to find a clip in hours of footage"），
+    离 short_threshold 0.50 还有距离，说明当前档位不是压着线过的。
+    漏判的那 4% 会出现在候选清单里，由真人加进 force_brand——
+    这也是 --commit 必须先经 approved 的理由之一。
+
+data_source_value: "Search Console"   # Phase 0 字段表 2026-08-05 第三次解冻加的取值
+
+api:
+  # domain property 的写法是 sc-domain:<域名>；URL-prefix property 写完整 URL。
+  site_url: "sc-domain:vivu.ai"
+  # GSC 最多回溯 16 个月。默认拉满——首次导入要的是存量，不是增量。
+  lookback_days: 480
+  # 单次最多取多少行。GSC 单次上限 25000。
+  row_limit: 5000
+  # 只按 query 维度聚合。不加 page / country / device——
+  # 那些会把同一个 query 拆成多行，而我们要的是 query 本身。
+  dimensions: ["query"]
+  # searchType。web / image / video / news。只要网页搜索。
+  search_type: "web"
+
+filters:
+  # 曝光下限。GSC 对极低频 query 本身就做匿名化过滤，剩下的还有一大堆 1 次曝光的噪音。
+  # 【推演待校准】
+  min_impressions: 3
+
+  # 长度闸。与另外两条链同口径。
+  min_words: 2
+  max_words: 16
+
+  # 命中即丢弃。
+  exclude_markers:
+    - porn
+    - xxx
+    - nude
+    - apk
+    - mod
+    - crack
+    - 破解
+    - login
+    - 官网
+
+brand:
+  # 品牌词不是 query 候选——搜品牌名的人已经知道我们了，那是 branded search 基线的料，
+  # 不是 AEO 内容的选题依据。
+  #
+  # 难点是**拼写变体**：实测见到 vibu ai / vi you ai / viyu ai / viyou ai / vuvu video /
+  # vievu / vivuvu / vifu ai … 几百条。简单的「包含 vivu」一条都拦不住。
+  # 所以用模糊匹配：去掉空格与标点后，与下列品牌名算相似度，超阈值即判为品牌变体。
+  # ① 整串包含即判品牌（去空格标点后做子串匹配，不模糊）。
+  #    复合形态放这里，**不能放进模糊匹配**——2026-08-05 首版实测踩到：
+  #    把 "vivuvideo" 拿去跟通用 token "video" 算相似度得 0.714，
+  #    于是**凡是含 video 的真词全被判成品牌**，16 条测试真词误杀 13 条。
+  contains_terms: ["vivu", "vivuai", "vivuvideo", "vivustudio"]
+
+  # ② 模糊匹配只用**核心 token**。品牌拼写变体的本质是这一个词被敲错，
+  #    不是后缀被敲错——"vibu ai" 错在 vibu，"ai" 是干净的。
+  core_terms: ["vivu"]
+
+  # ③ 通用词不参与模糊匹配。它们出现在真词里天经地义，
+  #    拿品牌名去跟它们比，比出来的相似度没有任何含义。
+  generic_tokens:
+    - ai
+    - video
+    - videos
+    - app
+    - apps
+    - editor
+    - editing
+    - edit
+    - online
+    - free
+    - maker
+    - studio
+    - download
+    - pc
+    - tool
+    - tools
+    - software
+    - generator
+    - com
+    - www
+
+  # ④ 阈值按长度分档。去空格后很短的串，跟品牌名有一半像就几乎必然是拼写变体
+  #    （"vuvu" / "vuvi" 这种）；长短语则要求高得多，否则误杀。
+  short_max_chars: 10
+  short_threshold: 0.50
+  long_threshold: 0.72
+  # 无论相似度多少都强制视为品牌的（人工加的）
+  force_brand: []
+  # 无论相似度多少都强制**不**视为品牌的（被误杀后由真人加回来）
+  force_not_brand: []
+
+caps:
+  # 一次最多写进 Query 库几条。被截下的不静默丢弃，留在日志里并点名。
+  max_per_run: 30
+
+notes:
+  - "本链零成本：Search Console API 免费，无按量计费。"
+  - "clicks / impressions / position / 品牌判定分数只落
+     logs/gsc_queries_*.json 与 outbox 审核清单——Query 库 8 个字段装不下，
+     与另外几条链撞的是同一堵墙。"
+  - "输出里同时给 branded / non-branded 的点击与曝光分布。那是 Concept 里
+     A7 的度量项『branded search 基线』，当前没有任何脚本在算，
+     本链顺手算出来不额外花任何成本。"

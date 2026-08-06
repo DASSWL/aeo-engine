@@ -1013,3 +1013,105 @@ Phase 2 当时写的「接口留着，实现未接」字面为真：**API 调用
 Google 的 developer token 分 Test / Basic / Standard。**Test 级只能查测试账号**，
 返回的是假数据。若当前是 Test 级，接通了也拿不到真实搜索量——
 先在 Google Ads 后台 API Center 确认它的级别，再决定要不要动工。
+
+---
+
+# 第七条链：Search Console（2026-08-05）
+
+Shawn 拍板接。**这是 Phase 0 字段表当天第三次解冻**：`数据来源` 加第 7 个取值
+`Search Console`。改后 8 字段 / 7 取值，独立回读核对，42 行数据完好。
+
+## 它和另外两条的分工（别搞混）
+
+| | 回答什么 | 精度 | 长尾 | 成本 |
+|---|---|---|---|---|
+| Keyword Planner | 市场上有多少人搜 | 桶中值 | ⛔ 拒绝 >10 词 | 要 Basic 审批 |
+| **Search Console** | 真人实际搜了什么、我们露没露面 | **精确整数** | ✅ 无限制 | **免费** |
+| SERP API | 谁在占这些词的位 | 不给量 | — | 按量计费 |
+
+## ⛔ 两条写死在脚本最前面的纪律
+
+**一、impressions 不是月搜索量。** 它是「我们出现了多少次」，被两件事过滤过：
+我们有没有内容、Google 排不排我们。一个词一个月一万人搜、我们从没露面 → impressions = 0。
+把它写进 `月搜索量` 比 KP 桶中值更严重——**桶中值至少还在描述市场，impressions 描述的是我们自己。**
+
+所以本链写进 Query 库的行，`月搜索量` 与 `搜索量区间` **都留空**。
+clicks / impressions / position 只落运行日志与审核清单。
+
+**二、它看不见我们没有内容的品类，它的沉默不是「没需求」的证据。**
+2026-08-05 人工看过一轮：739 条 query 里，「检索已有素材」这个品类**一条都没有**——
+而那正是 Query 库整库在讲的东西。那不是市场没需求，是我们没内容。
+两者混同就是拿缺席当反证。要找「市场有需求但我们完全不沾边」的词，那是 Keyword Planner 的活。
+
+## 品牌判定：首版是错的，修法记在这里
+
+品牌词不是选题依据，得先滤掉。难点是**拼写变体**——实测有几百条
+（`vibu ai` / `vi you ai` / `viyu ai` / `vuvu video` / `vievu` …），「包含 vivu」一条都拦不住。
+
+首版用模糊匹配，词表里放了复合形态 `vivuvideo`。**16 条测试真词误杀 13 条，而且全部同分 0.714。**
+同分是线索：`SequenceMatcher("vivuvideo", "video") = 2×5/(9+5) = 0.714`——
+拿复合品牌名去跟通用 token `video` 比，**凡是含 video 的真词全被判成品牌**。
+那是规则错，不是阈值错，调阈值永远修不好。
+
+改成三段：
+
+1. **子串命中**（不模糊）：`vivu` / `vivuai` / `vivuvideo` / `vivustudio`
+2. **模糊匹配只用核心 token** `vivu`，且通用词（video / ai / editor / online …）不参与比较
+3. **阈值按长度分档**：去空格后 ≤10 字符用 0.50，更长的用 0.72——
+   短串跟品牌名有一半像就几乎必然是拼写变体，长短语则要求高得多
+
+离线自测（样本全部取自当天真实 GSC 返回）：
+
+```
+品牌变体 23/24 命中（漏 "vioai" 0.444）
+真词     20/20 保住，零误杀
+真词最高分 0.333，离 0.50 还有距离 —— 不是压着线过的
+```
+
+漏判的那 4% 会出现在候选清单里，由真人加进 `force_brand`。
+
+## 顺带算出 branded search 基线
+
+Concept 里 A7 的度量项之一，**当前没有任何脚本在算**。它和 query 候选是同一次
+API 调用带回来的，不额外花任何成本，所以顺手算进报告：branded / non-branded
+的 query 数、点击、曝光及占比。
+
+注意：这个比例依赖品牌模糊匹配的阈值。**做趋势时必须锁住阈值**，否则是在量自己的参数不是量市场。
+
+## 新增文件
+
+| 文件 | 说明 |
+|---|---|
+| `scripts/gsc_queries.py` | 主脚本。默认 dry-run；`--commit` 另需 config approved |
+| `scripts/gsc_auth.py` | 一次性换 refresh_token。**不写日志、不落 outbox、不改 .env** |
+| `config/gsc.yaml` | 品牌判定与过滤规则，含实测结果留档。`status: draft` |
+
+只用 `requests`，不引 `google-auth` / `google-api-python-client`——
+refresh_token 换 access_token 就是一次 POST，为它装一整套 SDK 不值
+（同 `aeo_common` 开头那条「不用第三方库，避免多一个依赖」）。
+
+## 现在跑它会怎样
+
+```
+exit=2  status=missing_credential  missing=[GSC_CLIENT_ID, GSC_CLIENT_SECRET, GSC_REFRESH_TOKEN]
+```
+
+按纪律不降级、不造假，退出码 2 让缺失被看见。
+
+### 真人要做的（GSC API 免费，但这几步脚本代不了）
+
+1. Google Cloud Console 建或选一个项目
+2. 启用 **Google Search Console API**
+3. OAuth 同意屏：类型 External，把自己加进 Test users，
+   scope 加 `https://www.googleapis.com/auth/webmasters.readonly`
+4. 凭据 → 建 OAuth client ID → 类型 **Desktop app** → 拿 client_id / client_secret
+5. 两个值写进 `.env` 的 `GSC_CLIENT_ID` / `GSC_CLIENT_SECRET`
+6. 跑 `python3 scripts/gsc_auth.py`，照它说的授权，把它打印的 `GSC_REFRESH_TOKEN` 贴进 `.env`
+7. 跑 `python3 scripts/gsc_queries.py` 看 dry-run，对着 `dropped_as_brand_borderline`
+   核一遍品牌判定，再把 `config/gsc.yaml` 的 `status` 改 `approved`，才能 `--commit`
+
+## 一处已知的调参点
+
+`min_impressions: 3` 会滤掉 `premiere pro beat detection`（1 次曝光，但**排名 4.0**）。
+曝光低而排名高的词，往往是最精准的长尾——这个阈值把它们一起滤掉了。
+首轮真实跑完之后对着 `dropped` 列表调。

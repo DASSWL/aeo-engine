@@ -117,6 +117,22 @@ CHAINS = [
                     "它要变成发现，必须走完 Keyword Planner 那一步拿到真实搜索量。",
     },
     {
+        # Phase 0 字段表 2026-08-05 第三次解冻加的取值。
+        "数据来源": "Search Console",
+        "writer": "scripts/gsc_queries.py",
+        "creates_rows": True,
+        "updates_rows": False,
+        "input_kind": "gsc",
+        "input_desc": "Search Console API（真人实际搜了什么、且 vivu.ai 露过面）",
+        "credentials": ["GSC_CLIENT_ID", "GSC_CLIENT_SECRET", "GSC_REFRESH_TOKEN"],
+        "kind": "真·发现，但有边界",
+        "kind_why": "真人实际敲进 Google 的词，精确整数、无词数限制、免费——"
+                    "三条里唯一不经任何估算的。但它**只看得见我们已经露过面的词**："
+                    "站上没有的品类它永远是空的，它的沉默不是「没需求」的证据。"
+                    "找「市场有需求但我们完全不沾边」的词是 Keyword Planner 的活。"
+                    "另：impressions 不是搜索量，本链进库的行两个量列都留空。",
+    },
+    {
         # 解冻加的第二个取值。Reddit / LinkedIn 扫描已经在逐字采集真实提问，
         # 但把它们变成 query 的脚本还没建——这是当前唯一「有值无链」的一条。
         "数据来源": "A1 扫描",
@@ -389,6 +405,10 @@ def diagnose(chain, facts, env, crons):
                                         "要等下一次探测真的跑起来才有料——"
                                         "而探测当前卡在 Perplexity 未登录"))
             human.append("恢复 Perplexity 登录态，否则每日探测整体停机，追问也无从谈起")
+    elif chain["input_kind"] == "gsc":
+        d["燃料"] = "Search Console 的 16 个月存量（2026-08-05 人工确认："
+        d["燃料"] += "总 11.6K 点击 / 149K 曝光，非品牌 200 点击 / 13.7K 曝光）"
+        # 燃料是有的，卡的是凭据——上面 ③ 已经把它记进 breaks 了，这里不重复记。
     elif chain["input_kind"] == "pipeline":
         n = facts["pipeline_a1"]
         d["燃料"] = "水箱 `来源 = A1 扫描` 的行 {} 条".format(n)
