@@ -1,0 +1,49 @@
+# ---------------------------------------------------------------------------
+# J1 AEO 内容产线(j1_runner.py)的全部业务值。
+#
+# 出处:Build Spec · Phase 3「J1 证据生产」+ 2026-08-06 Shawn 拍板
+# 「把流程建立起来,同时计入台账」。
+#
+# 与 J4 的 outreach.yaml 同一哲学:脚本内不写死任何业务值。
+# 闸门本身不在这里——闸门只存在于 j1_evidence.py(证据解析)与 gates.yaml(邻域),
+# 本文件只管队列怎么排、证据怎么筛、产出怎么落。
+# ---------------------------------------------------------------------------
+
+queue:
+  # 只自动产这一类。评估式选题涉及竞品对比口径,对比页有邻域闸门,都等真人。
+  types_allowed: ["痛点级任务式"]
+  # 数据来源白名单:只有「市场在问」形态的来源能当选题。
+  # Keyword Planner / SERP 观察刻意不在内——那两条链是补量与占位观察,
+  # 进来的是短头词(如 yahoo search video),不是能回答的问法。
+  # 首轮 dry-run(2026-08-06)实测:不加这条白名单,队列头两名就是 KP 导航词。
+  # 这就是裁决①的代价那句话:「排 AEO 内容优先级前必须先看数据来源列」。
+  sources_allowed: ["探测问题", "A1 扫描", "买家原话", "AI 建议", "Search Console"]
+  # 状态黑名单(命中即跳过)。Query 库当前用「候选」等值,黑名单比白名单稳:
+  # 将来加新状态值时默认进队列,归档类值加进这里。
+  statuses_exclude: ["已归档"]
+  # 每次运行最多写几篇。周频 × 2 = 每周至多 2 篇待签发草稿,
+  # 签发是真人动作,产得比签得快只会堆积库存。
+  max_per_run: 2
+
+evidence:
+  # 信号原文里带这些标记的行不进证据候选——那不是本人说的话,是名单命中条件。
+  # 与 J4 evidence_gate 对 Apollo 行的降级判定同一出处(outreach.yaml)。
+  exclude_markers: ["非原文引用"]
+  # 进 prompt 的证据候选上限。太多会稀释配对质量,而且 quote 全文很长。
+  max_candidates_in_prompt: 12
+  # 每条 quote 进 prompt 的截断长度(字符)
+  quote_max_chars: 300
+
+# 站点事实层。正文可引用的产品事实只有这个文件里 status=已确认 的字段。
+# 无出处不写——facts.json 自己的 hard_rule,产线只是执行它。
+facts_file: "/Users/shiyuanniu/project/vivu_web/data/facts.json"
+
+article:
+  # 文章硬要求,进 prompt 逐条执行
+  language: "English"
+  word_range: "600-900"
+  demo_cta: "Vivu's demo is 30 minutes, on your footage."
+
+telegram:
+  # 通知消息(不是文章本体——文章太长,群里只发摘要与路径)
+  max_chars_per_message: 3500
