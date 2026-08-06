@@ -1302,3 +1302,52 @@ Shawn 2026-08-05 点名：`viva`（VivaVideo）、`vivo`。
 不是 dry-run 纪律。自动化的写入由定时任务带 `--commit` 调用实现（调度待建，见当日对话记录）。
 GSC API 路径缺 `GSC_CLIENT_ID / GSC_CLIENT_SECRET / GSC_REFRESH_TOKEN` 三项，
 补齐步骤见 gsc_queries 一节的「真人要做的」。
+
+---
+
+# 2026-08-05 收尾之四：自动运转落成（调度 + GSC 全链 + KP API + sequence 扩段）
+
+## 已验证的链路状态变化
+
+| 链 | 之前 | 现在 |
+|---|---|---|
+| GSC | CSV 手动导出 | **API 全自动**（OAuth 三项已入 .env，dry-run 实测拉回 739 条、出 10 条候选） |
+| Apollo | 缺 key | **已通**（auth/health 200，A 段 dry-run 实测 49 家公司、配对与去重正常） |
+| KP API | 「实现未接」 | **已实现** `generateKeywordHistoricalMetrics`（缺 OAuth 4 项，`ads_auth.py` 就绪） |
+
+gsc_auth.py 的 OOB 重定向被 Google 封杀是当天实测踩到的（报「Access blocked:
+request is invalid」），已改 loopback；ads_auth.py 生而用 loopback。
+
+## 新增调度（OpenClaw · vivu-sales · mode none → telegram -5261250225）
+
+| 任务 | cron | 干什么 |
+|---|---|---|
+| `aeo_query_candidates` | `0 11 * * *` | 候选池 → Query 库（AI 建议链） |
+| `aeo_gsc_queries` | `30 11 * * 1` | GSC API → Query 库 |
+| `aeo_scan_queries` | `0 12 * * 1` | 水箱 A1 扫描原话 → Query 库 |
+| `aeo_apollo_poll` | `0 13 * * 1` | Apollo 名单 → 水箱（含招聘反查） |
+| `aeo_query_intake` | `0 14 * * 5` | 进料链诊断 + 买家原话 `--commit` 入库 |
+
+执行体 `run_chain_commit.sh`：统一追加 `--commit`（脚本本身保持默认 dry-run 纪律，
+「自动写入」这个决定集中在这一个文件，要撤销只改这里）；写 0 条 → NO_ALERT 静默，
+写 >0 条 → PUSH 摘要进群，失败（含缺凭据 exit 2）→ PUSH 失败上报。
+`run_query_intake.sh` 的 buyer_quote 从 `--review` 改成 `--review --commit`。
+`brief.yaml` 时刻表同步加了 5 行，行数上限 32 → 37（原则不变：永不截断）。
+
+## keyword_volume 第三处改动：API 路径落地
+
+词表 = 种子词 ∪ 库里无量证据的词（判据与 kp_seeds 一致）。API 返回值照走
+文件级桶化判定——无投放账号 API 给的同样是桶中值，不因「来自 API」就当精确值。
+>10 词的先剔除并点名。Test 级 token 会收到 DEVELOPER_TOKEN_NOT_APPROVED，
+报错里已写明去 API Center 升 Basic。
+
+还差真人做的：`ads_auth.py` 换 refresh token（client 可复用 GSC 的，但要先在
+同一 Cloud 项目启用 Google Ads API）+ `.env` 补 `GOOGLE_ADS_CUSTOMER_ID`。
+凭据齐后建议加 cron `aeo_keyword_volume`（周一 11:45，避开 11:30 GSC）。
+
+## Apollo sequence 扩段
+
+`apollo_sequence.py` 加 `--segment B|C|D|E`（覆盖 build_now，名字按 naming 模板）。
+正文走既有 skill 产线（skill_check --stage → claude -p + vivu-outreach +
+ai-writing-guideline，--add-dir 指向实时规则文件）。B–E 四段建成即暂停，
+启动键仍在 Apollo 界面由真人按——零发送红线一字未动。
