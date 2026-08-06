@@ -161,7 +161,35 @@ def parse_volume(raw):
     return None, "非精确值，按「未知留空」处理（原始值：{!r}）".format(s)
 
 
-def parse_csv_dir(csv_dir):
+def detect_buckets(values, bucket_cfg):
+    """整份文件是不是「桶化」的？返回 (是否桶化, 理由)。
+
+    为什么必须逐文件判、而不是看到 5000 就当区间（2026-08-05 实测发现）：
+      KP 的**界面**显示区间（`1K – 10K`），**导出的 CSV** 却把区间换成桶中值
+      整数（`5000`）。照单全收就是把桶标签当测量值写进基准——
+      Phase 0「折算等于伪造精度」那条禁令在导出层就被绕过去了。
+      但有投放的账号返回的是任意整数（4830、12100），那才是真测量值，
+      把它降级成区间同样是毁数据。
+
+    判据刻意保守：**每一个**取值都落在桶集合里，且行数达到下限，才算桶化。
+    出现任何一个不在表里的数就判为精确值文件——一个反例即证伪。
+    """
+    buckets = bucket_cfg["buckets"]
+    nums = [v for v in values if v is not None]
+    if len(nums) < bucket_cfg["detection"]["min_rows"]:
+        return False, "有效行 {} 条，少于桶化判定下限 {}，按精确值处理".format(
+            len(nums), bucket_cfg["detection"]["min_rows"])
+    outliers = sorted({v for v in nums if v not in buckets})
+    if outliers:
+        return False, ("出现 {} 个不在桶集合里的取值（如 {}），"
+                       "判为精确值文件，不做任何还原".format(
+                           len(outliers), outliers[:5]))
+    return True, ("{} 条取值全部落在桶集合里（出现过 {}），"
+                  "判为桶化文件：还原成区间写 `搜索量区间`，`月搜索量` 留空".format(
+                      len(nums), sorted(set(nums))))
+
+
+def parse_csv_dir(csv_dir, bucket_cfg):
     """解析目录下所有 CSV/TSV。返回 (rows, files_report)。"""
     paths = sorted(glob.glob(os.path.join(csv_dir, "*.csv")) +
                    glob.glob(os.path.join(csv_dir, "*.tsv")))
@@ -176,20 +204,38 @@ def parse_csv_dir(csv_dir):
                                     delimiter=delim)
             kw_col = _pick(reader.fieldnames, KEYWORD_COLUMNS)
             vol_col = _pick(reader.fieldnames, VOLUME_COLUMNS)
-            n = 0
+            # 先整份读完再判桶化——桶化是**文件级**属性，逐行判不出来。
+            staged = []
             for rec in reader:
                 kw = (rec.get(kw_col) or "").strip()
                 if not kw:
                     continue
                 vol, note = parse_volume(rec.get(vol_col))
-                rows.append({"query 文本": kw, "月搜索量": vol,
-                             "volume_note": note, "source_file": name})
-                n += 1
+                staged.append({"query 文本": kw, "月搜索量": vol,
+                               "volume_note": note, "source_file": name})
+
+            bucketed, why = detect_buckets([r["月搜索量"] for r in staged],
+                                           bucket_cfg)
+            if bucketed:
+                for r in staged:
+                    raw = r["月搜索量"]
+                    r["搜索量区间"] = bucket_cfg["buckets"][raw]
+                    r["月搜索量"] = None          # 区间不是数字，不塞进 number 字段
+                    r["volume_note"] = (
+                        "桶化文件：CSV 给的 {} 是 Keyword Planner 的桶中值不是测量值，"
+                        "已还原成区间 {!r} 写进 `搜索量区间`，`月搜索量` 留空".format(
+                            raw, r["搜索量区间"]))
+            else:
+                for r in staged:
+                    r["搜索量区间"] = None
+            rows.extend(staged)
+
             report.append({"file": name, "encoding": enc,
                            "delimiter": "TAB" if delim == "\t" else ",",
                            "header_line": head_idx + 1,
                            "keyword_column": kw_col, "volume_column": vol_col,
-                           "parsed_rows": n, "error": None})
+                           "parsed_rows": len(staged), "error": None,
+                           "bucketed": bucketed, "bucket_verdict": why})
         except (OSError, ValueError) as exc:
             report.append({"file": name, "parsed_rows": 0, "error": str(exc)})
     return rows, report
@@ -235,7 +281,8 @@ def main():
 
         csv_dir = args.csv_dir or os.path.join(ac.REPO, "data", "kw")
         os.makedirs(csv_dir, exist_ok=True)
-        parsed, files_report = parse_csv_dir(csv_dir)
+        bucket_cfg = ac.load_config("kp_buckets.yaml")
+        parsed, files_report = parse_csv_dir(csv_dir, bucket_cfg)
 
         # Query 库现状 → 去重
         notion = ac.Notion(env["NOTION_TOKEN"], env["NOTION_VERSION"])
@@ -260,6 +307,7 @@ def main():
                 "类型": typ,
                 "面向角色": qcfg["role_by_type"][typ],
                 "月搜索量": row["月搜索量"],
+                "搜索量区间": row.get("搜索量区间"),
                 "数据来源": ds_value,
                 "状态": qcfg["initial_status"],
                 "volume_note": row["volume_note"],
@@ -273,8 +321,13 @@ def main():
                 # 已有行的来源标注要留着，不能被本脚本盖掉。见下方 commit 分支的注释。
                 item["existing_数据来源"] = ac.select_name(
                     existing[key].get("properties", {}), "数据来源")
-                if row["月搜索量"] is None:
-                    skipped.append(dict(item, skip_reason="已在 Query 库且本次无精确搜索量，不覆盖"))
+                # 本次带回了新信息吗？精确值算，区间也算——
+                # 区间是「量级已知、精度未知」，比什么都没有强，
+                # 它有自己的列（`搜索量区间`，Phase 0 字段表 2026-08-05 解冻加的），
+                # 不会挤占 `月搜索量`。
+                if row["月搜索量"] is None and not row.get("搜索量区间"):
+                    skipped.append(dict(item,
+                        skip_reason="已在 Query 库，且本次既无精确搜索量也无区间，不覆盖"))
                 else:
                     to_update.append(item)
             else:
@@ -292,11 +345,14 @@ def main():
                     "类型": sc.p_select(item["类型"]),
                     "面向角色": sc.p_select(item["面向角色"]),
                     "月搜索量": sc.p_number(item["月搜索量"]),
+                    "搜索量区间": sc.p_text(item["搜索量区间"]),
                     "数据来源": sc.p_select(item["数据来源"]),
                     "状态": sc.p_select(item["状态"]),
                 })
                 written.append({"action": "create", "query 文本": item["query 文本"],
-                                "page_id": page["id"]})
+                                "page_id": page["id"],
+                                "月搜索量": item["月搜索量"],
+                                "搜索量区间": item["搜索量区间"]})
             for item in to_update:
                 # 本脚本补的是**搜索量**，不是来源。已有来源标注一律不覆盖，
                 # 只在该字段为空时才写——与 serp_scan.py:184 同一条口径。
@@ -307,14 +363,23 @@ def main():
                 # 无条件覆写会在补量的那一瞬把这三者全抹成「Keyword Planner」——
                 # 解冻换来的出处区分当场归零，而且是**静默**归零：
                 # 补量成功了，数字是对的，出处没了，没有任何报警会响。
-                props = {"月搜索量": sc.p_number(item["月搜索量"])}
+                # 精确值与区间各写各的列，互不挤占：
+                #   有精确值 → 写 `月搜索量`
+                #   有区间   → 写 `搜索量区间`（Phase 0 字段表 2026-08-05 解冻加的第 8 列）
+                # 只有本次真的带回了那一项才写，别拿 None 去盖掉已有的值。
+                props = {}
+                if item["月搜索量"] is not None:
+                    props["月搜索量"] = sc.p_number(item["月搜索量"])
+                if item.get("搜索量区间"):
+                    props["搜索量区间"] = sc.p_text(item["搜索量区间"])
                 if not item.get("existing_数据来源"):
                     props["数据来源"] = sc.p_select(item["数据来源"])
                 notion.update_page(item["existing_page_id"], props)
                 written.append({"action": "update", "query 文本": item["query 文本"],
                                 "page_id": item["existing_page_id"],
                                 "数据来源": item.get("existing_数据来源") or item["数据来源"],
-                                "数据来源_是否本次写入": "数据来源" in props})
+                                "数据来源_是否本次写入": "数据来源" in props,
+                                "本次写入的列": sorted(props.keys())})
 
         sc.emit(SCRIPT, {
             "script": SCRIPT,
@@ -342,7 +407,11 @@ def main():
                 "月搜索量为 null 表示 CSV 给的是区间或空值。Phase 0 Query 库 §4 口径是"
                 "「未知留空」，不折算区间中值——折算等于伪造精度。",
                 "类型 / 面向角色 的判定规则来自 config/scan.yaml query 节，整节【推演待校准】。",
-                "更新已有行时只补「月搜索量」；「数据来源」仅在为空时才写，不覆盖已有标注"
+                "桶化文件的处置：Keyword Planner 的界面显示区间、导出 CSV 却给桶中值整数"
+                "（1K – 10K → 5000）。照单全收就是把桶标签当测量值写进基准。"
+                "本脚本逐文件判桶化（全部取值都在桶集合里才算），桶化文件一律"
+                "`月搜索量` 留空、区间写进 `搜索量区间`（Phase 0 字段表 2026-08-05 解冻加的第 8 列）。",
+                "更新已有行时只补本次真的带回来的列；「数据来源」仅在为空时才写，不覆盖已有标注"
                 "（2026-08-05 Shawn 拍板改。此前无条件覆写，会把「AI 建议」「A1 扫描」"
                 "「买家原话」三种出处静默抹成「Keyword Planner」）。",
             ],

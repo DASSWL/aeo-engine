@@ -200,7 +200,7 @@ def claude_task_materials():
 def query_db_facts(notion, env):
     rows = notion.query_all(env["DS_QUERY"])
     by_source, by_status, by_type = {}, {}, {}
-    vol_known, source_blank = 0, 0
+    vol_known, range_known, source_blank = 0, 0, 0
     for r in rows:
         p = r.get("properties", {})
         s = ac.select_name(p, "数据来源")
@@ -214,6 +214,8 @@ def query_db_facts(notion, env):
         vp = p.get("月搜索量") or {}
         if vp.get("type") == "number" and vp.get("number") is not None:
             vol_known += 1
+        if ac.rich_text(p, "搜索量区间").strip():
+            range_known += 1
     created = sorted({r.get("created_time", "")[:10] for r in rows})
     return {
         "total": len(rows),
@@ -221,6 +223,7 @@ def query_db_facts(notion, env):
         "by_状态": by_status,
         "by_类型": by_type,
         "月搜索量非空": vol_known,
+        "搜索量区间非空": range_known,
         "数据来源为空的行": source_blank,
         "建行日期": created,
     }
@@ -419,11 +422,13 @@ def render(result):
     q = result["query_db"]
     L = ["🔎 AEO · Query 库进料链诊断 {}".format(result["generated_at"][:16]),
          "",
-         "**Query 库现状**：{} 行 · 来源 `{}` · 状态 `{}` · 月搜索量非空 {} 条".format(
+         "**Query 库现状**：{} 行 · 来源 `{}` · 状态 `{}`".format(
              q["total"],
              json.dumps(q["by_数据来源"], ensure_ascii=False),
-             json.dumps(q["by_状态"], ensure_ascii=False),
-             q["月搜索量非空"]),
+             json.dumps(q["by_状态"], ensure_ascii=False)),
+         "量证据：精确值 {} 条 · 区间 {} 条 · 两者皆无 {} 条".format(
+             q["月搜索量非空"], q["搜索量区间非空"],
+             q["total"] - q["月搜索量非空"] - q["搜索量区间非空"]),
          "建行日期：{}（此后无新行）".format(", ".join(q["建行日期"]) or "无"),
          ""]
 

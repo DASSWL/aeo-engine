@@ -5,7 +5,10 @@ Shawn 2026-08-05 指定新增的两条进料路径之二（路径 2：AI 建议�
 在缺 Google Ads 凭据时**唯一能做且有用的那一半**。
 
 它回答一个问题：**现在 Query 库里哪些词还没有任何市场证据。**
-判据就一条：`月搜索量` 为空。为空 = 没有任何人验证过有人真的搜它。
+判据：`月搜索量` 为空 **且** `搜索量区间` 也为空。
+两列都空 = 没有任何人验证过有人真的搜它。
+（`搜索量区间` 是 Phase 0 字段表 2026-08-05 解冻加的第 8 列。有区间就是有量级证据，
+  精度未知而已，不该再拉去重验一遍。）
 
 为什么需要单独一个脚本，而不是用 keyword_volume.py --print-seeds：
   那个打印的是 **config 里的 28 条种子**（spec 首批 3 条 + segments.yaml 25 条），
@@ -75,12 +78,14 @@ def main():
                 continue
             vp = p.get("月搜索量") or {}
             vol = vp.get("number") if vp.get("type") == "number" else None
+            rng = ac.rich_text(p, "搜索量区间").strip()
             item = {"query 文本": text,
+                    "搜索量区间": rng,
                     "数据来源": ac.select_name(p, "数据来源"),
                     "状态": ac.select_name(p, "状态"),
                     "类型": ac.select_name(p, "类型"),
                     "月搜索量": vol, "page_id": r["id"]}
-            (have if vol is not None else missing).append(item)
+            (have if (vol is not None or rng) else missing).append(item)
 
         if args.paste:
             for m in missing:
@@ -106,8 +111,8 @@ def main():
             "generated_at": datetime.now(tz).isoformat(),
             "counts": {
                 "query_db_total": len(rows),
-                "月搜索量为空": len(missing),
-                "月搜索量已知": len(have),
+                "无任何量证据（月搜索量与搜索量区间皆空）": len(missing),
+                "已有精确值或区间": len(have),
             },
             "缺量行按数据来源": dict(by_source),
             "seeds": [m["query 文本"] for m in missing],
@@ -137,7 +142,7 @@ def main():
 
         L = ["🌱 AEO · 待验量的 query（Keyword Planner 种子）",
              "",
-             "Query 库 {} 行，其中 **月搜索量为空 {} 行**、已知 {} 行。".format(
+             "Query 库 {} 行，其中 **无任何量证据 {} 行**、已有精确值或区间 {} 行。".format(
                  len(rows), len(missing), len(have)),
              "缺量行按来源：`{}`".format(dict(by_source)),
              "`data/kw/` 现有 CSV/TSV：{} 个".format(csv_count),
