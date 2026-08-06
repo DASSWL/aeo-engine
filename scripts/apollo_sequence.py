@@ -93,17 +93,18 @@ def parse_body_file(path):
     return subject, body
 
 
-def build_prompt(cfg, segments_cfg, skill_report):
-    seq = cfg["sequence"]["build_now"]
+def build_prompt(cfg, segments_cfg, skill_report, seq=None):
+    seq = seq or cfg["sequence"]["build_now"]
     seg_key = seq["segment"]
     seg = (segments_cfg.get("segments") or {}).get(seg_key, {})
     missing = skill_report.get("missing_required") or []
 
     lines = [
-        "# 任务：为 Apollo 冷 outreach sequence `{}` 写第一封（A 段第一封）".format(seq["name"]),
+        "# 任务：为 Apollo 冷 outreach sequence `{}` 写第一封（{} 段第一封）".format(
+            seq["name"], seg_key),
         "",
         "这封信会进 Apollo sequence，但**建成即暂停，不会自动发出**。真人在 Apollo 界面",
-        "逐字审过并按下启动键之后，它才会发给 A 段的 200–400 家公司里的联系人。",
+        "逐字审过并按下启动键之后，它才会发给 {} 段的 200–400 家公司里的联系人。".format(seg_key),
         "换句话说：这是一封要发给几百个陌生人的信，且只写一次。",
         "",
         "## 强制产线",
@@ -129,7 +130,7 @@ def build_prompt(cfg, segments_cfg, skill_report):
         ]
 
     lines += [
-        "## 收件人画像（A 段，来自 config/segments.yaml，不要超出这里写的事实）",
+        "## 收件人画像（{} 段，来自 config/segments.yaml，不要超出这里写的事实）".format(seg_key),
         "",
         "- segment 名：{}".format(seg.get("name") or "-"),
         "- 定义：{}".format(seg.get("definition") or "-"),
@@ -173,6 +174,9 @@ def main():
     parser.add_argument("--body", default=None, help="claude 产出的正文文件")
     parser.add_argument("--no-sequence", dest="no_sequence", action="store_true",
                         help="关闭开关：整个建 sequence 动作跳过，不调 Apollo")
+    parser.add_argument("--segment", default=None, choices=["A", "B", "C", "D", "E"],
+                        help="覆盖 config 的 build_now.segment（2026-08-05 扩段用；"
+                             "版本号沿用 build_now.version，名字按 naming 模板生成）")
     args = parser.parse_args()
 
     try:
@@ -184,6 +188,11 @@ def main():
 
         seq_cfg = cfg["sequence"]
         seq = seq_cfg["build_now"]
+        if args.segment:
+            version = seq_cfg["build_now"]["version"]
+            seq = {"segment": args.segment, "version": version,
+                   "name": seq_cfg["naming"].format(segment=args.segment,
+                                                    version=version)}
         mode = sc.resolve_mode(args)
 
         # 零发送红线：这一条不通过就不用往下走了
@@ -207,7 +216,7 @@ def main():
 
         if args.emit_prompt:
             with open(args.emit_prompt, "w", encoding="utf-8") as fh:
-                fh.write(build_prompt(cfg, segments_cfg, skill_report))
+                fh.write(build_prompt(cfg, segments_cfg, skill_report, seq))
             print("PROMPT: {}".format(args.emit_prompt), file=sys.stderr)
             return 0
 
@@ -238,7 +247,8 @@ def main():
             "contacts_planned": 0,
             "would_cost_if_contacts_added": (
                 "本次不加人。将来加人时，每个联系人若需解锁邮箱按 1 credit 计；"
-                "A 段目标 {}–{} 家公司。".format(
+                "{} 段目标 {}–{} 家公司。".format(
+                    seq["segment"],
                     seq_cfg["companies_per_segment_min"],
                     seq_cfg["companies_per_segment_max"])),
             "credit_balance_before": balance,
