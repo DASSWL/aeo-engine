@@ -145,7 +145,9 @@ brand:
   #    而阈值又是按整串长度选的，于是 "vu editor"(8字符,阈值0.5) 被抓、
   #    "vu video editor"(13字符,阈值0.72) 漏掉——同一个证据两种标准，不自洽。
   #    列成显式 token 最干净，且不动已经调好的阈值。
-  standalone_tokens: ["vu", "viv", "vivu", "vuvu", "vivo"]
+  # 注意：这里只放**我们自己**的品牌形态。第三方品牌放 ⑦，
+  # 否则会被算进 branded search 基线，把我方品牌流量虚高。
+  standalone_tokens: ["vu", "viv", "vivu", "vuvu"]
 
   # ⑦ 第三方品牌里**恰好是英文词**的那一类。⑤⑥ 和造词过滤都拦不住它们：
   #    2026-08-05 实测残留 4 条含 "viva"（VivaVideo 是真实产品，而 viva 是英文词）。
@@ -157,7 +159,8 @@ brand:
   #    哪怕它看起来很显然。真人填等于真人做了那个判断，脚本只执行。
   #
   #    每轮跑完，报告里会把疑似这一类的候选单列出来供真人过目。
-  third_party_tokens: []
+  #    Shawn 2026-08-05 点名：viva（VivaVideo）、vivo（vivo 手机 / vivo AI）。
+  third_party_tokens: ["viva", "vivo"]
   # 无论相似度多少都强制视为品牌的（人工加的）
   force_brand: []
   # 无论相似度多少都强制**不**视为品牌的（被误杀后由真人加回来）

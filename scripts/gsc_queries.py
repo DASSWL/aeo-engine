@@ -374,7 +374,7 @@ def screen(rows, cfg, scan_cfg, vocab):
     f, b = cfg["filters"], cfg["brand"]
     neo = cfg.get("neologism") or {}
     qcfg = scan_cfg["query"]
-    kept, branded, dropped = [], [], []
+    kept, branded, third_party, dropped = [], [], [], []
 
     for r in rows:
         q = (r.get("keys") or [""])[0].strip()
@@ -391,7 +391,12 @@ def screen(rows, cfg, scan_cfg, vocab):
         item["brand_score"] = round(score, 3)
         item["brand_hit"] = hit
         if brand:
-            branded.append(item)
+            # 第三方品牌单独一桶：混进「我方品牌」会把 branded search 基线虚高，
+            # 那个比例是 A7 的度量项，掺了别人家的流量就不再是我们的基线。
+            if str(hit).startswith("third_party:"):
+                third_party.append(item)
+            else:
+                branded.append(item)
             continue
 
         if item["impressions"] < f["min_impressions"]:
@@ -430,7 +435,8 @@ def screen(rows, cfg, scan_cfg, vocab):
         kept.append(item)
 
     kept.sort(key=lambda x: -x["impressions"])
-    return kept, branded, dropped
+    third_party.sort(key=lambda x: -x["impressions"])
+    return kept, branded, third_party, dropped
 
 
 def baseline(branded, non_branded_all):
@@ -464,7 +470,8 @@ def render(r):
          "",
          "| 项 | 值 |", "|---|---|",
          "| API 返回 query 数 | {} |".format(c["api_rows"]),
-         "| 判为品牌词（含拼写变体） | {} |".format(c["branded"]),
+         "| 判为我方品牌（含拼写变体） | {} |".format(c["branded"]),
+         "| 判为第三方品牌（真人点名） | {} |".format(c.get("third_party_brand", 0)),
          "| 过滤掉 | {} |".format(c["dropped"]),
          "| 与 Query 库重复 | {} |".format(c["duplicate"]),
          "| **待写入** | **{}** |".format(c["to_create"]),
@@ -573,7 +580,7 @@ def main():
             start = end = "见导出文件（CSV 不含日期范围）"
 
         vocab, vocab_note = load_vocab(cfg.get("neologism") or {})
-        kept, branded, dropped = screen(rows, cfg, scan_cfg, vocab)
+        kept, branded, third_party, dropped = screen(rows, cfg, scan_cfg, vocab)
 
         notion = ac.Notion(env["NOTION_TOKEN"], env["NOTION_VERSION"])
         existing = sc.existing_query_texts(notion.query_all(env["DS_QUERY"]))
@@ -661,12 +668,14 @@ def main():
             "counts": {
                 "api_rows": len(rows),
                 "branded": len(branded),
+                "third_party_brand": len(third_party),
                 "dropped": len(dropped),
                 "duplicate": len(duplicate),
                 "to_create": len(to_create),
                 "capped": len(capped),
             },
             "branded_baseline": baseline(branded, kept + dropped),
+            "third_party_brand_rows": third_party,
             "possible_third_party": possible_third_party,
             "to_create": to_create,
             "capped": capped,
