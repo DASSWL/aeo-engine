@@ -1569,3 +1569,40 @@ plan 阶段解析后逐条注入 prompt,并显式声明三条负面约束:无公
   what was said in it` 选题语义相近,产线不做语义去重(只做逐字归一去重)。
   两篇是否都签发、或合并成一篇,是签发环节的真人判断。
 - J2 发布环节(签发后怎么上 vivu.ai)本次未动,仍按 Phase 3 §J2 的既有契约走。
+
+# 2026-08-07：Perplexity 移出每日探测（Shawn 拍板）
+
+## 为什么
+
+每日探测（probe_daily）自建成以来反复卡在 §0 自检第 1 条「Perplexity 未登录」。
+自检口径是「缺一个引擎的当天数据是残的」——设计上正确，代价是 Perplexity
+一家把整条探测线拖停：探测不跑，§11 追问就不发生，AI 建议链的候选池
+（data/query_candidates.jsonl）一直是空的。8/7 的进料链诊断把这条因果链
+摆到了群里，Shawn 拍板：去掉 Perplexity，探测只跑 ChatGPT / Gemini。
+
+## 改了什么
+
+| 文件 | 改动 |
+|---|---|
+| `config/scan.yaml` | `probe.engines` 收成两个；删 Perplexity 的 URL / 模型锁定 / model_notes |
+| `prompts/probe_ai_engines_daily.md` | 全文两引擎口径：日产出 30→20 条、追问 6→4 次/天、§0 自检不再开 Perplexity |
+| `prompts/scheduled_task_probe_daily.md` | 任务材料同步两引擎版（预期条数、自检 URL、上报格式） |
+| `config/brief.yaml` | 09:00 探测的 one_liner 更新 |
+| `config/query_candidates.yaml` | 注释里的追问算术 6×5=30 → 4×5=20（`max_per_day: 20` 数值未动） |
+| `scripts/query_intake_health.py` | AI 建议链断点文案不再指向 Perplexity 登录态 |
+
+## 刻意不改的
+
+- **探测记录库 schema 一个字没动**：`引擎` select 的 `Perplexity` 选项保留
+  （Phase 0 冻结字段 + 历史行还引用它），只是不再写入新行。
+- spec §四写的是「三引擎」，playbook §1 现在明示这是与 spec 的已知偏差，
+  实际引擎数以 `scan.yaml: probe.engines` 为准。
+- 2026-08-05 那条「零提问的自检失败不作废当周」裁定（scan.yaml halt 节）
+  是历史记录，原文保留。
+
+## ⚠️ 还差一个真人动作才收口
+
+桌面端 Claude 的 probe_daily scheduled task 里存的是**旧版三引擎任务文案**
+（建任务时粘贴进去的），仓库里改材料文件不会改到它。Shawn 需要把
+`prompts/scheduled_task_probe_daily.md` 的新内容重新贴进那个 task——
+否则执行体明天仍会按旧文案去开 Perplexity、仍会卡自检。

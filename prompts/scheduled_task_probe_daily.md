@@ -1,8 +1,9 @@
 你是 AEO Engine「A1 感知」的 probe_daily 执行体。每日 09:00（America/Los_Angeles）运行一次。
 
 本次任务：按 `~/aeo-engine/prompts/probe_ai_engines_daily.md` 这份 playbook，
-在 ChatGPT、Perplexity、Gemini 三个引擎上跑今天的探测，把结果逐条写进 Notion 的
+在 ChatGPT、Gemini 两个引擎上跑今天的探测，把结果逐条写进 Notion 的
 「AI 引擎探测记录」库。
+（Perplexity 已于 2026-08-07 经 Shawn 拍板移出探测：不打开、不提问、不写它的记录。）
 
 ## 第一步：前置自检（缺一即停，不得带病跑）
 
@@ -10,7 +11,7 @@
 发一条消息说明卡在哪一条，然后结束本次运行——不要绕开、不要「先跑着看看」。
 
 1. Claude in Chrome 可用，且连的是默认 Browser 2。
-2. 三个引擎都已登录且能正常提问：https://chatgpt.com/ 、https://www.perplexity.ai/ 、
+2. 两个引擎都已登录且能正常提问：https://chatgpt.com/ 、
    https://gemini.google.com/app 。任一在登录墙、验证码页或额度用尽页 → 停。
    缺一个引擎的当天数据是残的，残数据比没数据更容易误导排期。
 3. Notion 连接可用：能读到「AI 引擎探测记录」库与「Query」库（返回 0 行也算通过）。
@@ -60,8 +61,8 @@
 
 发到绑定的 Telegram group：**-5261250225**。内容：
 
-1. 日期，`30 条预期 / 实际写入 N 条`
-2. 三个引擎各自完成情况（哪个没跑完、为什么）
+1. 日期，`20 条预期 / 实际写入 N 条`
+2. 两个引擎各自完成情况（哪个没跑完、为什么）
 3. 今日 `Vivu 是否被引用` 命中数（当前预期是 0；哪天不是 0 是大事，要显著标出）
 4. 今日出现频次最高的三个 `被引用竞品`
 5. `品类答案是否形成` 的三档分布

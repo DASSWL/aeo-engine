@@ -94,7 +94,7 @@ schedule:
     - time: "09:00"
       sort: "09:00"
       label: "AI 引擎探测"
-      one_liner: "两套问题各 5 条问 ChatGPT / Perplexity / Gemini"
+      one_liner: "两套问题各 5 条问 ChatGPT / Gemini（2026-08-07 起去掉 Perplexity）"
       days: [1, 2, 3, 4, 5, 6, 7]
     - time: "09:30"
       sort: "09:30"

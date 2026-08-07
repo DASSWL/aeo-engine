@@ -402,9 +402,11 @@ def diagnose(chain, facts, env, crons):
             n["total"], n["committed"])
         if n["total"] == 0:
             breaks.append(("缺真人动作", "候选池是空的。追问环节写在 playbook §11，"
-                                        "要等下一次探测真的跑起来才有料——"
-                                        "而探测当前卡在 Perplexity 未登录"))
-            human.append("恢复 Perplexity 登录态，否则每日探测整体停机，追问也无从谈起")
+                                        "要等每日探测真的跑起来才有料"
+                                        "（2026-08-07 起探测只跑 ChatGPT/Gemini 两引擎，"
+                                        "不再被 Perplexity 登录态卡死）"))
+            human.append("确认桌面端 probe_daily 任务已换成两引擎版材料并正常出跑，"
+                         "候选池会随每天 4 次追问自然进料")
     elif chain["input_kind"] == "gsc":
         d["燃料"] = "Search Console 的 16 个月存量（2026-08-05 人工确认："
         d["燃料"] += "总 11.6K 点击 / 149K 曝光，非品牌 200 点击 / 13.7K 曝光）"
