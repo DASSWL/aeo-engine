@@ -1649,3 +1649,15 @@ serp_writable 的注释改明「仅来源标注口径，0 不构成断点」。
 修后 SERP 行：❌（结构如此）· 断点 — · 需真人决定 否。
 
 §八① 那堵墙剩下的另一半（买家原话的出处列装不下）维持原样报告，仍待拍板。
+
+## 补：probe_daily 挪到每日 01:00（2026-08-07 Shawn 拍板）
+
+探测从每日 09:00 挪到 01:00（America/Los_Angeles），避开工作时段——
+与周批扫挪周六 22:00 同一动机。三处材料已同步：scheduled_task_probe_daily.md、
+probe_ai_engines_daily.md、brief.yaml（01:00 早于 daily_brief 10:00，
+当天简报看到的是已跑完的探测，顺序反而更顺）。
+
+前提与真人动作：
+- 桌面端 task 的 schedule 需 Shawn 自己改成每日 01:00。
+- 凌晨 1 点机器得醒着（桌面端 Claude task 在本机跑浏览器）——
+  合盖/睡眠会静默缺席，而探测的验收项是「连续 7 天有记录」。

@@ -91,10 +91,10 @@ schedule:
       label: "冷邮件回流"
       one_liner: "轮询 Apollo 回复，sequence 未激活期间空转"
       days: [1, 2, 3, 4, 5, 6, 7]
-    - time: "09:00"
-      sort: "09:00"
+    - time: "01:00"
+      sort: "01:00"
       label: "AI 引擎探测"
-      one_liner: "两套问题各 5 条问 ChatGPT / Gemini（2026-08-07 起去掉 Perplexity）"
+      one_liner: "两套问题各 5 条问 ChatGPT / Gemini（2026-08-07 起去掉 Perplexity、挪凌晨 1 点）"
       days: [1, 2, 3, 4, 5, 6, 7]
     - time: "09:30"
       sort: "09:30"
