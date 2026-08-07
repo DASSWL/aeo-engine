@@ -2,7 +2,7 @@
 
 依据：Build Spec · Phase 2 §一.1、§二、§四「playbook 文件规范」与「各 playbook 要点」。
 执行者：Claude 会话（Claude in Chrome，默认 Browser 2 + Notion 连接）。
-频率：**每周一次**，周一 10:00（America/Los_Angeles）。不得加频。
+频率：**每周一次**，周六 22:00（America/Los_Angeles，2026-08-07 起，此前为周一 10:00）。不得加频。
 本 playbook 的 `playbook` 标识（写日志用）：`scan_linkedin_weekly`
 
 ---

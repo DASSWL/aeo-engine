@@ -115,11 +115,11 @@ schedule:
   # 周节点。既进①当天清单，也是③「本周节点」倒计时的唯一来源——
   # 两处共用这一份，不各写一遍日子，免得改了一处漏另一处。
   weekly:
-    - time: "10:00"
-      sort: "10:00"
+    - time: "22:00"
+      sort: "22:00"
       label: "周批扫"
-      one_liner: "LinkedIn 三组搜索加 Reddit 存量帖，首月盯跑"
-      days: [1]
+      one_liner: "LinkedIn 三组搜索加 Reddit 存量帖，首月盯跑（2026-08-07 起挪周六晚）"
+      days: [6]
     - time: "11:30"
       sort: "11:30"
       label: "GSC 入库"
