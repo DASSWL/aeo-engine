@@ -32,6 +32,7 @@ Query 库的 `数据来源` 每个合法取值对应一条进料链（Phase 0 �
 import glob
 import json
 import os
+import re
 import subprocess
 import sys
 from datetime import datetime
@@ -200,6 +201,32 @@ def cron_names():
     return names, None
 
 
+def wrapper_stems():
+    """脚本名 → 把它写死在体内跑的 run_*.sh 执行体名（去掉 run_ 前缀）。
+
+    为什么需要：调度检查拿脚本名去匹配 cron 名，但有的脚本不直接挂 cron，
+    而是被某个 run_*.sh 包着挂——buyer_quote_queries.py 就在 run_query_intake.sh
+    体内、挂在 `aeo_query_intake` 下。只按脚本名匹配会把「每周都在跑」的链
+    误判成「缺调度」（2026-08-07 的报告就这么误报过，当天它明明刚跑完）。
+
+    从 shell 源码里读包装关系而不是手维护一张表：表会随下一个 wrapper 过期。
+    run_chain_commit.sh 那种 `scripts/${SCRIPT}.py` 的转发壳不会被匹配到
+    （`$`/`{` 不在字符集里），这是刻意的——它对应的 cron 名本身含脚本名，
+    直接匹配已覆盖。
+    """
+    out = {}
+    for path in glob.glob(os.path.join(ac.REPO, "scripts", "run_*.sh")):
+        stem = os.path.basename(path)[len("run_"):-len(".sh")]
+        try:
+            with open(path, encoding="utf-8") as fh:
+                text = fh.read()
+        except OSError:
+            continue
+        for name in re.findall(r"scripts/([a-z0-9_]+)\.py", text):
+            out.setdefault(name, []).append(stem)
+    return out
+
+
 def claude_task_materials():
     """三个 Claude scheduled task 的材料文件。
 
@@ -320,7 +347,7 @@ def serp_writable(notion, env):
 # 逐链判定
 # ---------------------------------------------------------------------------
 
-def diagnose(chain, facts, env, crons):
+def diagnose(chain, facts, env, crons, wrappers):
     """返回该链的判定。每一条结论都要指得出是哪个事实支撑的。"""
     breaks = []          # (类别, 说明)
     human = []           # 需要真人做的事
@@ -354,18 +381,21 @@ def diagnose(chain, facts, env, crons):
         breaks.append(("缺凭据", "缺 {}".format(" / ".join(missing))))
         human.append("补凭据：{}".format(" / ".join(missing)))
 
-    # ④ 调度
+    # ④ 调度。匹配键 = 脚本名 + 包着它的 run_*.sh 执行体名——
+    # 只按脚本名匹配会漏掉包装挂载（见 wrapper_stems 的注释）。
     scheduled = None
     if chain["writer"]:
         stem = os.path.basename(chain["writer"])[:-3]
+        keys = [stem] + wrappers.get(stem, [])
         if crons is None:
             scheduled = None
         else:
-            scheduled = [c for c in crons if stem in c]
+            scheduled = [c for c in crons if any(k in c for k in keys)]
     d["定时任务"] = ("查不到（openclaw cron list 不可用）" if scheduled is None
                      else scheduled or [])
     if chain["writer"] and scheduled == []:
-        breaks.append(("缺调度", "本机 OpenClaw 无任何定时任务跑 {}——"
+        breaks.append(("缺调度", "本机 OpenClaw 无任何定时任务跑 {}"
+                                "（含 run_*.sh 包装）——"
                                 "它只在有人手动敲命令时才跑".format(chain["writer"])))
 
     # ⑤ 燃料
@@ -508,8 +538,20 @@ def render(result):
               ", ".join(result["claude_task_materials"]) or "无"),
           "- 注：Claude 侧任务建在真人桌面的 Claude 里，本机查不到运行状态；"
           "材料文件在 ≠ 任务在跑。且它们只能写 outbox，靠 `outbox_sweep` 兜底转发。",
-          "",
-          "四条进料链里**没有一条**挂着定时任务。", ""]
+          ""]
+    # 结论按当次数据算，不写死——写死的那句（"四条进料链里没有一条挂着定时任务"）
+    # 在链数变成 7、调度陆续挂上之后还在报里原样出现，和上面的表自相矛盾。
+    unsched = [c["数据来源"] for c in result["chains"]
+               if isinstance(c["定时任务"], list) and not c["定时任务"]]
+    if result["cron_names"] is None:
+        L.append("cron 名单本次取不到，不下「谁没挂调度」的结论。")
+    elif unsched:
+        L.append("{} 条链里 **{} 条**的写库脚本没有任何定时任务：{}。".format(
+            len(result["chains"]), len(unsched), "、".join(unsched)))
+    else:
+        L.append("{} 条链的写库脚本全部有调度覆盖（含经 run_*.sh 包装挂载的）。".format(
+            len(result["chains"])))
+    L.append("")
     return "\n".join(L)
 
 
@@ -527,6 +569,7 @@ def main():
 
         notion = ac.Notion(env["NOTION_TOKEN"], env["NOTION_VERSION"])
         crons, cron_err = cron_names()
+        wrappers = wrapper_stems()
 
         probe_q = scan_cfg.get("probe", {}).get("questions") or {}
         pool = candidate_pool_facts()
@@ -557,7 +600,7 @@ def main():
             "cron_names": crons,
             "cron_error": cron_err,
             "claude_task_materials": claude_task_materials(),
-            "chains": [diagnose(c, facts, env, crons) for c in CHAINS],
+            "chains": [diagnose(c, facts, env, crons, wrappers) for c in CHAINS],
         }
         body = render(result)
         result["report"] = body

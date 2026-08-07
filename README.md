@@ -1606,3 +1606,32 @@ plan 阶段解析后逐条注入 prompt,并显式声明三条负面约束:无公
 （建任务时粘贴进去的），仓库里改材料文件不会改到它。Shawn 需要把
 `prompts/scheduled_task_probe_daily.md` 的新内容重新贴进那个 task——
 否则执行体明天仍会按旧文案去开 Perplexity、仍会卡自检。
+
+# 2026-08-07（下午）：周批扫挪周六晚 + 诊断脚本修两处误报
+
+## 周批扫改期（Shawn 拍板）
+
+linkedin_reddit_weekly（LinkedIn 周批扫 + Reddit 周扫，同一个桌面端 task）
+从周一 10:00 挪到**周六 22:00**（America/Los_Angeles），避开工作时段。
+
+- 口径不变：周批扫按 `datePosted=past-week` 取数，落在哪天跑都覆盖过去 7 天。
+- 已知的 1.5 天时差：`aeo_scan_queries`（扫描原话入库）仍在周一 12:00，
+  周六晚扫到的原话周一中午才进 Query 库。可接受，暂不动那条 cron。
+- 材料已同步：scheduled_task_linkedin_reddit_weekly.md / scan_reddit_weekly.md /
+  scan_linkedin_weekly.md / brief.yaml（weekly 条目 days 1→6、10:00→22:00）。
+- **真人动作**：桌面端 task 的 schedule 要 Shawn 自己改成周六 22:00
+  （仓库文件改不到桌面端）。改完最近一场 = 2026-08-08 本周六。
+
+## query_intake_health 修两处误报（8/7 报告暴露）
+
+1. **调度检查漏包装挂载**：原来拿脚本名匹配 cron 名，buyer_quote_queries.py
+   由 run_query_intake.sh 包着挂在 `aeo_query_intake` 下，匹配不上被误判
+   「缺调度」——当天它明明刚跑完还产了 1 条候选。修法：新增 `wrapper_stems()`
+   从 run_*.sh 源码读包装关系一起匹配（不手维护表，表会随下一个 wrapper 过期；
+   run_chain_commit.sh 这种 `${SCRIPT}` 转发壳刻意不匹配，其 cron 名本身含脚本名）。
+2. **末行结论写死**：「四条进料链里没有一条挂着定时任务」是四链时代的文案，
+   七链 + 调度陆续挂上后还在原样输出，与上文表格自相矛盾。改为按当次数据渲染
+   （cron 取不到时如实说取不到，不下结论）。
+
+修后实测（dry-run）：买家原话 ✅、无调度的只剩探测问题与 Keyword Planner（均属预期：
+前者是一次性同步，后者等 Google Ads 审批后挂 `aeo_keyword_volume` 收口）。
