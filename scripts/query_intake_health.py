@@ -55,7 +55,8 @@ SCRIPT = "query_intake_health"
 #   probe_questions_sync.py:96   notion.create_page(...)          → 建行
 #   keyword_volume.py:287        notion.create_page(...)          → 建行
 #   keyword_volume.py:298        notion.update_page(...)          → 也能改行
-#   serp_scan.py:189             notion.update_page(page_id, {数据来源})  → 只改，不建
+#   serp_scan.py                 notion.update_page(page_id, {SERP 占位[, 数据来源]})
+#                                → 只改，不建（2026-08-06 起写 SERP 占位 快照列）
 # ---------------------------------------------------------------------------
 CHAINS = [
     {
@@ -99,7 +100,10 @@ CHAINS = [
         "kind": "都不是",
         "kind_why": "它不建行——结构上不可能产新 query。它的输入是 Query 库自己，"
                     "产出是「谁在占这些词的位」（竞品与评测站），"
-                    "那是给 J0 竞替名单和 J1 对比页用的，不是新词。",
+                    "那是给 J0 竞替名单和 J1 对比页用的，不是新词。"
+                    "2026-08-06 Shawn 拍板加了 `SERP 占位` 列后，"
+                    "这份产出已有处安放，链作为占位标注器已在运转"
+                    "（cron aeo_serp_scan 周一 13:30）。",
     },
     {
         # Phase 0 字段表 2026-08-05 解冻，additive 加的两个取值之一。
@@ -332,11 +336,11 @@ def pipeline_a1_count(notion, env):
 
 
 def serp_writable(notion, env):
-    """SERP 链就算有 key，今天能落在 Notion 上的行数。
+    """`数据来源` 为空、SERP 链可标注来源的行数。
 
-    serp_scan 只在 `数据来源` **为空**时写标注（不覆盖 Keyword Planner 的来源）。
-    Query 库现有行的来源全部非空时，这个数是 0——
-    也就是说缺凭据只是它的第一道断点，不是唯一一道。
+    只是来源标注的口径，不是「SERP 链能不能写库」的口径——
+    2026-08-06 加了 `SERP 占位` 列之后，占位快照对**全部**行可写（覆盖写），
+    这个数是 0 不构成断点，别再按 2026-08-06 之前的语义读它。
     """
     rows = notion.query_all(env["DS_QUERY"])
     return sum(1 for r in rows
@@ -366,13 +370,15 @@ def diagnose(chain, facts, env, crons, wrappers):
         if not exists:
             breaks.append(("缺脚本", "{} 不存在".format(chain["writer"])))
 
-    # ② 结构上能不能建行
+    # ② 结构上能不能建行。
+    # 2026-08-06 之前 creates_rows=False 在这里记「缺 schema」并挂 §八① 待拍板项；
+    # 当天 Shawn 已拍「加字段」（Query 库第四次解冻，additive 加 `SERP 占位` 列），
+    # 产出已有处安放。不建行如今是这条链的**定位**（占位标注器，喂 J0/J1），
+    # 不是待修的断点，也没有悬而未决的真人决定——所以这里不再进 breaks。
     d["能建行"] = chain["creates_rows"]
     if chain["creates_rows"] is False:
-        breaks.append(("缺 schema", "脚本结构上只 update 不 create——"
-                                    "原因是 Query 库 7 个冻结字段装不下它的产出"
-                                    "（占位者名单与 URL 列表），所以它无行可建"))
-        human.append("Phase 2 §八① 第一个待拍板问题：加字段 / 另建库 / 就留日志")
+        d["结构说明"] = ("只 update 不 create——占位标注器，不是进料链。"
+                         "产出自 2026-08-06 起写 `SERP 占位` 列（覆盖写快照，历史在 logs）")
 
     # ③ 凭据
     missing = [k for k in chain["credentials"] if not env.get(k)]
@@ -449,13 +455,11 @@ def diagnose(chain, facts, env, crons, wrappers):
                                         "Reddit / LinkedIn 周批扫还没产出过任何一行"))
             human.append("跑首轮周批扫（Reddit 存量提问帖），让 A1 扫描侧真的有料")
     elif chain["input_kind"] == "query_db":
-        d["燃料"] = "Query 库 {} 行，其中 `数据来源` 为空、本链可写的 {} 行".format(
+        # `SERP 占位` 快照对全部行可写；`数据来源` 仅在为空时标注。
+        # 后者是 0 行不构成断点（见 serp_writable 的注释），如实报数即可。
+        d["燃料"] = ("Query 库 {} 行——`SERP 占位` 快照对全部行可写（覆盖写）；"
+                     "`数据来源` 仅在为空时标注，当前可标 {} 行").format(
             facts["query_db"]["total"], facts["serp_writable"])
-        if facts["serp_writable"] == 0:
-            breaks.append(("缺 schema", "现有 {} 行的 `数据来源` 全部非空，"
-                                        "而本脚本只在该字段为空时写标注（不覆盖别的来源）。"
-                                        "即使补上 SERPAPI_KEY，今天它在 Notion 上也是 0 行可写"
-                                        .format(facts["query_db"]["total"])))
 
     d["断点"] = [{"类别": k, "说明": v} for k, v in breaks]
     d["需要真人"] = human
@@ -493,7 +497,13 @@ def render(result):
           "|---|---|---|---|---|"]
     for c in result["chains"]:
         cats = " + ".join(dict.fromkeys(b["类别"] for b in c["断点"])) or "—"
-        fix = "；".join(b["说明"] for b in c["断点"]) or "已通"
+        if c["断点"]:
+            fix = "；".join(b["说明"] for b in c["断点"])
+        elif c["能产新 query"]:
+            fix = "已通"
+        else:
+            # 无断点但结构上不建行（SERP）：写「已通」会误导，写结构定位
+            fix = c.get("结构说明", "—")
         need = "是" if c["需要真人"] else "否"
         L.append("| {} | {} | {} | {} | {} |".format(
             c["数据来源"], "✅" if c["能产新 query"] else "❌", cats,
