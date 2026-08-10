@@ -1889,13 +1889,33 @@ AEO 的字段，已人工重写。另两页摘的是 137 / 111 字符，够用�
 后者的台账行（`3b4059d9…c650`）同日已改为「已下线」，因此不再进规则五的
 待发布清单——**不改的话它会天天出现在那张单子上**。
 
+## 上线闭环（当天完成）
+
+PR [#6](https://github.com/DASSWL/vivu_web/pull/6) squash 合并进 `main`（`d375a75`）。
+Deploy Preview 先绿，再合并——preview 跑的是同一条 build 命令，只是 `AEO_WRITEBACK`
+只对 Production 生效，所以它能验构建、验不了回写。
+
+生产构建后逐项实测：
+
+| 验的东西 | 结果 |
+|---|---|
+| 三个 `/blog/<slug>` | 全部 HTTP 200，各 1 个 `<h1>`、0 个类目 badge |
+| `sitemap.xml` | 三页全收录 |
+| `rss.xml` | 3 条 |
+| `/blog` 索引 | 三页全在 |
+| `/aeo/<slug>`（旧契约的 URL） | **404** —— 按老路发出去就是这个下场 |
+| 台账回写 | 三行 `已发布` + 正确发布链接，`签发日期` 未被覆盖 |
+| `sla_check` 规则五 | 0 条（`total_overdue` 归零） |
+| `j1_publish --list` | 0 行待发布 |
+
+**台账回写成功本身就是生产凭据的证据**：`AEO_NOTION_TOKEN` + `AEO_DS_LEDGER`
+这对凭据能写进去，lint 那边的台账读取用的是同一对，所以
+`AEO_LINT_REQUIRE_LEDGER=true` 到这一步才可以放心开——开在这之前，
+token 万一有问题就是每次构建都挂。
+
 ## 没做 / 待办
 
-- `vivu_web` 的分支 `aeo/j2-blog-pipeline`（两个 commit：管线改造 `5cdfe3a` +
-  首批三页 `da739ab`）**尚未 push、未开 PR、未合并**。合并进 main 触发生产构建，
-  构建成功后回写才会把这三行推成「已发布」并写上发布链接——
-  **在那之前台账停在「已签发」是正确状态，不是故障。**
-- 分支是从 `main` 切的，不含手上那个未合并的 `aeo/j2-foundation-signoff`。
+- 分支是从 `main` 切的，不含当时未合并的 `aeo/j2-foundation-signoff`。
 - 第一篇真上线之后，Netlify 打开 `AEO_LINT_REQUIRE_LEDGER=true`：
   当前 token 配错时 lint 会静默跳过台账比对而构建照绿，绿色部署不等于比对跑过。
 - 台账没有「发布日期」列（回写脚本注释里明说了不写，写进「签发日期」会覆盖真人
