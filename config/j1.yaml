@@ -47,3 +47,21 @@ article:
 telegram:
   # 通知消息(不是文章本体——文章太长,群里只发摘要与路径)
   max_chars_per_message: 3500
+
+# ---------------------------------------------------------------------------
+# 发布(j1_publish.py)。2026-08-10 Shawn 拍板:AEO 内容复用站点已有的 blog 管线,
+# 不另建 /aeo 渲染器——原契约的 content/aeo/ 目录站点根本没有代码去读它,
+# 按那条路发出去的「发布链接」是 404,而台账会记成已发布。
+#
+# 本节只描述**文件落到哪、URL 怎么拼**。回写台账不在这里:那是站点 build 里
+# scripts/aeo-ledger-writeback.mjs 的活,两边都从 frontmatter 的 slug 拼 URL,
+# 口径必须一致,否则台账会记下一条点开是 404 的已发布链接。
+# ---------------------------------------------------------------------------
+publish:
+  # 站点内容目录。AEO 页与自有博文混住,靠 frontmatter 的 AEO 字段区分。
+  posts_dir: "/Users/shiyuanniu/project/vivu_web/src/content/posts"
+  site: "https://vivu.ai"
+  url_prefix: "/blog"
+  author: "Vivu"
+  # meta description 上限。超了在搜索结果里会被截断,不如自己先收住。
+  description_max_chars: 155
