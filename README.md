@@ -1860,21 +1860,42 @@ title 渲染 `<h1>`，正文里再留一个就是一页两个 H1。
 - `sla_check.py` → 规则五命中 4 行，逐条写明「签发日期为空，站点 lint 会拒绝这一页上线」
 - `daily_brief.py` → ②节出现「AEO Content Ledger 待发布 4 条（已签发未上线）」，33 行
 
-验证用的临时页面已删除，本次两个仓库都没有内容页进版本管理。
+## 当天就跑通了：首批三页已生成
+
+Shawn 同日补完三行的「签发日期」（均为 2026-08-07），并把重复选题那行改成
+「已下线」。三页由 `j1_publish.py --commit` 生成并进了 `vivu_web` 版本管理
+（commit `da739ab`）：
+
+| slug | segment | 证据 |
+|---|---|---|
+| `search-video-by-spoken-words` | B | SIG-ed099b98, SIG-3dc7579e |
+| `how-to-find-an-old-brand-video-we-already-made` | A | SIG-3dc7579e, SIG-ed099b98 |
+| `livestream-highlights` | D | SIG-3dc7579e, SIG-46131a5a |
+
+带真台账 token 复跑：`aeo-lint` 通过（3 页 AEO、1 篇博文不校验，台账读到 4 行）；
+writeback dry-run 三页全是 `would_update`，URL 为 `/blog/<slug>`；
+SSR 渲染三页各 1 个 `<h1>`、0 个类目 badge，`/blog` 索引三页全在。
+
+**description 那条机器摘的警告是有用的**：第一页摘出来只有 44 字符
+（「You need a transcript with timestamps on it.」），准确但太薄，而这是最影响
+AEO 的字段，已人工重写。另两页摘的是 137 / 111 字符，够用，保留。
+这条流程往后照此办理：机器摘 + PR 里真人过一眼。
 
 ## 选题去重的拍板
 
 `search video by spoken words` 与 `how to search a video library by what was said in it`
 是同一问题的两种问法（08-06 那节「边界」里已标出，留给签发环节判断）。
 **Shawn 2026-08-10 拍板：保留前者，后者不发。** 两篇都上等于自己跟自己抢排名。
-后者的台账行（`3b4059d9…c650`）需要真人在 Notion 改成非「已签发」状态，
-否则规则五会一直报它——**这一步没做，它就会天天出现在待发布清单里**。
+后者的台账行（`3b4059d9…c650`）同日已改为「已下线」，因此不再进规则五的
+待发布清单——**不改的话它会天天出现在那张单子上**。
 
 ## 没做 / 待办
 
-- **台账那 4 行的「签发日期」要真人填。** 这是解冻整条链的第一步，脚本不代签。
-  填完跑 `python3 scripts/j1_publish.py --list` 看待发布清单。
-- `vivu_web` 的分支 `aeo/j2-blog-pipeline` **尚未 push、未开 PR、未合并**。
+- `vivu_web` 的分支 `aeo/j2-blog-pipeline`（两个 commit：管线改造 `5cdfe3a` +
+  首批三页 `da739ab`）**尚未 push、未开 PR、未合并**。合并进 main 触发生产构建，
+  构建成功后回写才会把这三行推成「已发布」并写上发布链接——
+  **在那之前台账停在「已签发」是正确状态，不是故障。**
+- 分支是从 `main` 切的，不含手上那个未合并的 `aeo/j2-foundation-signoff`。
 - 第一篇真上线之后，Netlify 打开 `AEO_LINT_REQUIRE_LEDGER=true`：
   当前 token 配错时 lint 会静默跳过台账比对而构建照绿，绿色部署不等于比对跑过。
 - 台账没有「发布日期」列（回写脚本注释里明说了不写，写进「签发日期」会覆盖真人
