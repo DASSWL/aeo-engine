@@ -70,10 +70,11 @@ def days_until(isoweekday, target_weekday):
 # --------------------------------------------------------------------------
 # 动态数字
 #
-# 四个数字各有各的出处，出处不同是有意的：
+# 五个数字各有各的出处，出处不同是有意的：
 #   待发草稿   —— data/draft_runner_sent.json ∩ 水箱仍在待触达状态的行
 #   inbox      —— 水箱 状态 = inbox
 #   台账待签发 —— 台账 状态 = 草稿
+#   台账待发布 —— 台账 状态 = 已签发 且 发布链接为空
 #   超时       —— 08:00 的 logs/sla_<date>.json，本脚本不重算
 # 字段名逐字取自 Phase 0 核对清单：状态 / 人名 / 公司 / 来源 / 信号类型 /
 # 入箱日期 / 触达时限起算。
@@ -82,6 +83,17 @@ def days_until(isoweekday, target_weekday):
 def count_by_status(rows, value):
     return sum(1 for r in rows
                if ac.select_name(r.get("properties", {}), "状态") == value)
+
+
+def count_unpublished(ledger, signed_status):
+    """已签发但发布链接还是空的 —— 也就是「签了字没上线的」。
+
+    发布链接由站点 build 成功后回写（vivu_web 的 aeo-ledger-writeback.mjs），
+    所以「有链接」是页面真上线过的证据，比状态字段可信。
+    """
+    return sum(1 for r in ledger
+               if ac.select_name(r.get("properties", {}), "状态") == signed_status
+               and not (r.get("properties", {}).get("发布链接") or {}).get("url"))
 
 
 def pending_drafts(pipeline, outreach_cfg, sla, tz, now):
@@ -191,6 +203,9 @@ def render(cfg, now, isoweekday, numbers, env):
         lines.append(d["inbox_pending"]["line"].format(n=numbers["inbox"]))
     if show(numbers["ledger"]):
         lines.append(d["ledger_pending"]["line"].format(n=numbers["ledger"]))
+    if show(numbers["ledger_unpublished"]):
+        lines.append(d["ledger_unpublished"]["line"].format(
+            n=numbers["ledger_unpublished"]))
 
     n_overdue, sla_present = numbers["overdue"]
     if not sla_present:
@@ -304,6 +319,8 @@ def main():
             "drafts": pending_drafts(pipeline, outreach, th["sla"], tz, now),
             "inbox": count_by_status(pipeline, data_cfg["pipeline_inbox_status"]),
             "ledger": count_by_status(ledger, data_cfg["ledger_draft_status"]),
+            "ledger_unpublished": count_unpublished(
+                ledger, data_cfg["ledger_signed_status"]),
             "overdue": overdue_count(sla_day.strftime("%Y-%m-%d"), data_cfg),
         }
 

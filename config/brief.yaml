@@ -35,7 +35,8 @@ render:
   #    （每日 1 条「AI 建议入库」+ 周一 3 条 + 周五 1 条），最坏形态是
   #    周一 32+4=36，留 1 行余量取 37。原则不变：永不触发截断。
   # 2026-08-06 再 +1（周一「SERP 占位扫描」行）→ 38。
-  max_lines: 38
+  # 2026-08-10 再 +1（②「台账待发布」行）→ 39。原则不变：永不触发截断。
+  max_lines: 39
   overflow_marker: "…（超出 {max} 行上限已截断，完整版见 outbox 原文）"
   header: "☀️ AEO Engine · 今日简报 {date}（{weekday}）"
   weekday_names: ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
@@ -54,6 +55,9 @@ data:
   pipeline_inbox_status: "inbox"
   # 台账「状态」= 草稿 → 待签发（与 sla_check.py 规则四同一口径）
   ledger_draft_status: "草稿"
+  # 台账「状态」= 已签发 且 发布链接为空 → 待发布（与 sla_check.py 规则五同一口径）
+  # 2026-08-10 追加：签发之后这些行原本谁都不盯，4 篇就这么静静躺了四天。
+  ledger_signed_status: "已签发"
   # 08:00 sla_check 的当日结果文件名，超时数从这里读，本脚本不重算
   sla_log_template: "sla_{date}.json"
   sla_total_key: "total_overdue"
@@ -183,6 +187,8 @@ sections:
         line: "· inbox 待甄别 {n} 条"
       ledger_pending:
         line: "· AEO Content Ledger 待签发 {n} 条"
+      ledger_unpublished:
+        line: "· AEO Content Ledger 待发布 {n} 条（已签发未上线）"
       overdue:
         # 只给计数。详情以 08:00 推送为准，简报重复展开就是第三份噪音。
         line: "· 超时 {n} 条（详情见 08:00 推送）"

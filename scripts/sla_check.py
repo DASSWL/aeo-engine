@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """AEO Engine · 每日时限检查。
 
-规则逐条来自 Build Spec · Phase 1 §四「sla_check.py 规则」一至四。
+规则一至四逐条来自 Build Spec · Phase 1 §四「sla_check.py 规则」。
+规则五（台账已签发未发布）是 2026-08-10 补的，出处见该节注释。
 零 LLM。所有时限来自 config/thresholds.yaml 的 sla 节，脚本内无字面量。
 
 J4 上线前的运行约定（spec §一.1）：触达完成由真人手动改状态并更新时间戳，
@@ -30,6 +31,7 @@ ACTIONABLE_STATUSES = ("inbox", "Named")
 SIGNAL_TYPE = "signal"      # 规则一：信号类型 = signal
 REFERRAL_SOURCE = "referral"  # 规则二：来源 = referral
 LEDGER_DRAFT = "草稿"        # 规则四：状态 = 草稿
+LEDGER_SIGNED = "已签发"     # 规则五：状态 = 已签发 且 发布链接为空
 
 
 def page_url(page):
@@ -49,7 +51,7 @@ def main():
         winloss = notion.query_all(env["DS_WINLOSS"])
         ledger = notion.query_all(env["DS_LEDGER"])
 
-        r1, r2, r3, r4 = [], [], [], []
+        r1, r2, r3, r4, r5 = [], [], [], [], []
 
         # ---- 规则一：信号 N 小时未触达 ----
         # 状态 inbox/Named，信号类型 = signal，现在 − 触达时限起算 > signal_hours
@@ -134,7 +136,37 @@ def main():
                     "url": page_url(row),
                 })
 
-        total = len(r1) + len(r2) + len(r3) + len(r4)
+        # ---- 规则五：台账已签发未发布 ----
+        # 2026-08-10 新增。规则四只盯「草稿」，签发那一刻这行就从所有雷达上消失，
+        # 于是 4 行签发于 08-06 的内容一篇没上线，四天没人提过一句。
+        #
+        # 「签发日期为空」不等时限，立刻报：站点 lint 对这种行两头堵死
+        # ——frontmatter 填了 signed_off 报「台账签发日期是空的」，不填报
+        # 「signed_off 为空」，两条路都 build fail。签发 = 改状态 + 填日期。
+        limit5 = timedelta(hours=sla["ledger_signed_hours"])
+        for row in ledger:
+            p = row.get("properties", {})
+            if ac.select_name(p, "状态") != LEDGER_SIGNED:
+                continue
+            if (p.get("发布链接") or {}).get("url"):
+                continue
+            signed = ac.date_prop(p, "签发日期", tz)
+            if signed is None:
+                reason, overdue = "签发日期为空，站点 lint 会拒绝这一页上线", None
+            elif now - signed > limit5:
+                reason = "已签发未发布"
+                overdue = round((now - signed).total_seconds() / 3600, 1)
+            else:
+                continue
+            r5.append({
+                "资产名": ac.title_text(p, "资产名"),
+                "类型": ac.select_name(p, "类型"),
+                "原因": reason,
+                "超时": overdue,
+                "url": page_url(row),
+            })
+
+        total = len(r1) + len(r2) + len(r3) + len(r4) + len(r5)
         report = {
             "generated_at": now.isoformat(),
             "thresholds_used": sla,
@@ -146,6 +178,7 @@ def main():
             "rule_2_referral_overdue": r2,
             "rule_3_winloss_fill": r3,
             "rule_4_ledger_draft_backlog": r4,
+            "rule_5_ledger_unpublished": r5,
         }
         print(json.dumps(report, ensure_ascii=False, indent=2))
 
@@ -186,6 +219,15 @@ def main():
             for i in r4:
                 lines.append("- {}（{}）积压 {}h · {}".format(
                     i["资产名"] or "(无名)", i["类型"] or "-", i["超时"], i["url"]))
+            lines.append("")
+        if r5:
+            lines.append("**⑤ 台账已签发但没发布（{} 项）**".format(len(r5)))
+            for i in r5:
+                lines.append("- {}（{}）{} · {}".format(
+                    i["资产名"] or "(无名)", i["类型"] or "-",
+                    i["原因"] if i["超时"] is None
+                    else "{} {}h".format(i["原因"], i["超时"]),
+                    i["url"]))
             lines.append("")
         lines.append("台账「待签发」视图：https://app.notion.com/p/{}".format(ledger_db))
 
