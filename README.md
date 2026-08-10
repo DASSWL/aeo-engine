@@ -358,15 +358,25 @@ Netlify 环境变量已由真人配置完毕并实测通过，不需要再查一
 | `AEO_DS_LEDGER` | `17847467-bea1-4377-97b6-0d9a3e3bd33b`（**data source ID，不是 database ID**） | Builds，全 context |
 | `AEO_NOTION_VERSION` | `2025-09-03` | Builds，全 context |
 | `AEO_WRITEBACK` | `commit` | Builds，**仅 Production** |
-| `AEO_LINT_REQUIRE_LEDGER` | 未配置（等跑顺再开） | — |
+| `AEO_LINT_REQUIRE_LEDGER` | `true`（2026-08-10 开启） | Builds，全 context |
 
 `AEO_WRITEBACK` 只给 Production 的理由：Deploy Preview 也跑完整 build，
 预览环境若也 commit，每开一个 PR 台账就被写成「已发布」，可内容根本没上线。
+
+`AEO_LINT_REQUIRE_LEDGER` 2026-08-10 开启（首批三页真上线、台账回写实测通过之后）。
+开启后「读不到台账」从注意事项升级为 build fail，下面那条「绿色部署不等于凭据
+配对了」的坑就此堵上。**顺序不能倒过来**：先证明凭据在生产环境真能读写台账，
+再开这个开关；开在前面，token 一旦有问题就是每次构建都挂。
+证据是三行台账被回写成「已发布」并写上了正确的发布链接——lint 读台账用的是
+同一对凭据。全 context 而非仅 Production：`AEO_NOTION_TOKEN` 与 `AEO_DS_LEDGER`
+本来就是全 context，预览也能读台账，一起卡住能更早发现 token 问题。
 
 三项实测证据：
 - 生产构建日志出现 `aeo-lint: 台账读到 0 行` —— token / DS ID / Connections 全通。
   ⚠️ 注意区分：若日志出现「AEO_NOTION_TOKEN / AEO_DS_LEDGER 未配置，跳过台账比对」，
   构建**照样是绿的**，但整个台账比对没跑。绿色部署不等于凭据配对了。
+  （2026-08-10 起 `AEO_LINT_REQUIRE_LEDGER=true`，这种情况已改判 build fail。
+  本条留着是因为它解释了那个开关为什么存在。）
 - `PATCH /v1/data_sources/<DS_LEDGER>` 空 body → 200，说明有 `Update content`。
   回写走的就是这个能力；spec §J2 写的「只读 token」与「CI 回写台账」自相矛盾，
   只读做不了回写。实际按最小可用集配的：Read content + Update content，
@@ -1911,13 +1921,13 @@ Deploy Preview 先绿，再合并——preview 跑的是同一条 build 命令�
 **台账回写成功本身就是生产凭据的证据**：`AEO_NOTION_TOKEN` + `AEO_DS_LEDGER`
 这对凭据能写进去，lint 那边的台账读取用的是同一对，所以
 `AEO_LINT_REQUIRE_LEDGER=true` 到这一步才可以放心开——开在这之前，
-token 万一有问题就是每次构建都挂。
+token 万一有问题就是每次构建都挂。**同日已由 Shawn 在 Netlify 开启**（全 context）。
 
 ## 没做 / 待办
 
 - 分支是从 `main` 切的，不含当时未合并的 `aeo/j2-foundation-signoff`。
-- 第一篇真上线之后，Netlify 打开 `AEO_LINT_REQUIRE_LEDGER=true`：
-  当前 token 配错时 lint 会静默跳过台账比对而构建照绿，绿色部署不等于比对跑过。
+- ~~第一篇真上线之后打开 `AEO_LINT_REQUIRE_LEDGER=true`~~ —— 同日已开（全 context）。
+  凭据表见「J2 凭据链」那节。
 - 台账没有「发布日期」列（回写脚本注释里明说了不写，写进「签发日期」会覆盖真人
   签发的日期）。发布时间目前只留在 git 与 Netlify 里。要不要加一列，等真发过几篇再说。
 - `j1_evidence.py` 登记台账时只把 `WL-` 证据写进 `证据编号` relation，`SIG-` 证据
