@@ -340,7 +340,13 @@ def notify_file(item, draft, ledger, outfile, cfg):
         "正文:{}".format(outfile),
         "台账行(去签发):{}".format(notion_url),
         "",
-        "签发动作:Notion 里把该行「状态」从 草稿 改为 已签发。未签发不上线。",
+        # 「填签发日期」不是可选项:只改状态的话,站点 lint 会两头堵死
+        # (填了 signed_off 报「台账签发日期是空的」,不填报「signed_off 为空」),
+        # 两条路都 build fail。2026-08-10 那 4 行就是这么卡住的。
+        "签发动作:Notion 里把该行「状态」从 草稿 改为 已签发,**并填「签发日期」**。",
+        "两件事都做完才发得出去,只改状态站点会 build fail。",
+        "",
+        "签发后:python3 scripts/j1_publish.py --list 看待发布清单。",
     ]
     text = "\n".join(lines)
     cap = cfg["telegram"]["max_chars_per_message"]

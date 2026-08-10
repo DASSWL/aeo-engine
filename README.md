@@ -1547,8 +1547,14 @@ plan 阶段解析后逐条注入 prompt,并显式声明三条负面约束:无公
 | 自动|search video by spoken words(产线端到端) | `3b4059d9…30da` | SIG-ed099b98, SIG-3dc7579e |
 
 四行状态全部「草稿」,独立回读全部一致。正文在 `outbox/j1_draft_*.md` 与
-`outbox/j1_sample_*.md`。**签发动作 = Shawn 在 Notion 把「状态」改「已签发」**,
-未签发的行 J2 的 CI lint 会拒绝上线,J3 也引用不到。
+`outbox/j1_sample_*.md`。**签发动作 = Shawn 在 Notion 把「状态」改「已签发」
+并填「签发日期」——两件事,不是一件**。未签发的行 J2 的 CI lint 会拒绝上线,
+J3 也引用不到。
+
+> ⚠️ 2026-08-10 更正:本节原来只写了「改状态」,漏了签发日期。照着做的结果是
+> 这四行状态全改了、日期全空,而站点 lint 对这种行两头堵死(填了 `signed_off`
+> 报「台账签发日期是空的」,不填报「`signed_off` 为空」),两条路都 build fail。
+> 详见文末「2026-08-10:发布链路补全」。
 
 ## 新增调度
 
@@ -1755,3 +1761,125 @@ dry-run 零写入 ✓；`--stage` 下候选进池、零收进零收档、两边�
 - `scripts/query_intake_health.py` 尚未读零收档。当前它只在候选池为 0 时报断点
   （池子有 40 行，不误报），但「本周有几次操作中断/卡死」还进不了周度诊断。
   要不要加，等零收档攒出几行真数据再说。
+
+# 2026-08-10：发布链路补全（Shawn 拍板：AEO 内容复用 blog 管线）
+
+## 起因：4 行「已签发」，0 行发布
+
+台账里 4 行 08-06 签发的 AEO 内容，到 08-10 一篇没上线，四天里没有任何
+告警、简报或人提过一句。查下来不是「忘了发」，是**发布链路的后半段根本没建**，
+外加两处会把台账写成假账的坑。
+
+## 卡点一：站点没有渲染 AEO 内容的代码
+
+原契约把 AEO 内容放 `vivu_web/content/aeo/`、URL 定 `/aeo/<slug>`。
+但 `scripts/routes.mjs` 里没有 `/aeo`，`scripts/prerender.mjs` 只跑
+`PRERENDER_ROUTES` 加 `/blog/:slug`，App 里也没有对应路由——**那个目录从来
+没有任何代码去读它**。J2 的 PR #2 交付了契约、lint 与回写，唯独没交付
+「markdown 变成页面」那一步。
+
+危险的不是发不出去。`aeo-ledger-writeback.mjs` 会把发布链接写成
+`https://vivu.ai/aeo/<slug>`，而 `netlify.toml` 明确没有 SPA catch-all，
+那 URL 直接 404。**台账记着「已发布」，链接是死的**——比压根没发糟。
+
+Shawn 拍板复用站点已经跑通的 blog 管线，而不是再建一套渲染器。改动全部落在
+`vivu_web`（分支 `aeo/j2-blog-pipeline`，commit `5cdfe3a`）：
+
+| 文件 | 改动 |
+|---|---|
+| `src/content/posts.ts` | frontmatter 解析器跳过 YAML 列表项；`category` 变可选；`type` 进 `Post` |
+| `src/pages/Blog.tsx`、`BlogPost.tsx` | 有 `category` 才渲染类目 badge |
+| `scripts/aeo-lint.mjs` | 改扫 `src/content/posts/`，只校验沾了 AEO 字段的文件；新增 slug 形态与 `draft: true` 判红 |
+| `scripts/aeo-ledger-writeback.mjs` | URL 前缀改 `/blog`；slug 取 frontmatter 不取文件名；拒绝 draft 与无 slug 的页 |
+| `content/` 目录 | 退役。契约文档改写后落 `docs/aeo-content-contract.md` |
+
+AEO 页与自有博文混住 `src/content/posts/`，靠 frontmatter 的 AEO 字段区分。
+lint 的判据刻意宽到「沾一个 AEO 字段就走全套校验」：若只认 `type: aeo`，
+漏写 `type` 的 AEO 页会被当成普通博文整条放行，那正是这条 lint 要挡的东西。
+
+**AEO 页不许 `draft: true`。** draft 的页不进 prerender、URL 是 404，而回写只看
+`ledger_id` 与 `signed_off`，照样会把台账推成「已发布」——又回到那个最坏形态。
+签发日期已经是它的闸门，两套开关并存只会互相打架。
+
+复用管线白拿的三件：进 `/blog` 索引（每篇得到一条站内链接）、进 `sitemap.xml`、
+进 `/rss.xml`。零新增路由。
+
+## 卡点二：签发动作的定义漏了一个字段
+
+README 原文与 `j1_notify_*.md` 都只说「把状态改成已签发」。照着做的结果是
+四行状态全改了、`签发日期` 全空，而站点 lint 对这种行**两头堵死**：
+
+- frontmatter 填 `signed_off` → 报「台账签发日期是空的」→ build fail
+- 不填 → 报「`signed_off` 为空」→ build fail
+
+**签发 = 改状态 + 填签发日期，两件事。** 口径已改：README 首日产出那节、
+`j1_runner.py` 的 `notify_file()` 生成文案、`docs/aeo-content-contract.md` 三处同步。
+
+## 卡点三：签发之后没有任何东西盯着
+
+`sla_check.py` 规则四只看「状态=草稿」，`daily_brief` 的 `ledger_pending` 同一口径。
+**签发那一刻，这行就从所有雷达上消失了**——这就是它安静躺四天的机制。
+
+- `sla_check.py` 新增**规则五**：状态=已签发 且 发布链接为空。
+  签发日期为空的**不等时限立刻报**（那是硬卡点，等 72 小时没有意义）；
+  有日期的按 `thresholds.yaml: sla.ledger_signed_hours`（72h，拍的数，待校准）。
+- `daily_brief` ②节新增「台账待发布 N 条（已签发未上线）」，`brief.yaml` 加
+  `data.ledger_signed_status` 与对应文案，`render.max_lines` 38 → 39。
+
+判据用「发布链接为空」而不是状态字段：发布链接由站点 build 成功后回写，
+**有链接是页面真上线过的证据**，比状态可信。
+
+## 新增 `scripts/j1_publish.py`
+
+补签发与发布之间那段真空：读台账「状态=已签发 且 发布链接为空」的行 →
+按「面向」匹配 outbox 草稿 → 生成 `src/content/posts/<slug>.md`。
+
+**它不写 Notion，一个字都不写**，也不碰 git。台账推成「已发布」是站点 build 里
+`aeo-ledger-writeback.mjs` 的活，且只在页面真的构建成功之后发生；在这里抢先写，
+等于用「文件生成了」冒充「页面上线了」。提交、开 PR、合并都是真人动作。
+
+三个字段脚本不猜，缺了就拒绝并说清缺什么：`--segment`（面向哪个 segment 是判断）、
+`--anchor-terms`（必须落在 `facts.json` 已确认集合内）、台账的签发日期。
+`--description` 不给就从正文首段摘，并在输出里明说「机器摘的，PR 里请真人过一眼」——
+它会原样出现在搜索结果里。
+
+正文落盘前剥掉草稿的头部注释与 H1：站点的 `BlogPost.tsx` 自己用 frontmatter 的
+title 渲染 `<h1>`，正文里再留一个就是一页两个 H1。
+
+## 实测（本地，未写 Notion）
+
+拿真草稿 `search video by spoken words` 造一页跑完整条链：
+
+- `npm run aeo:lint` 无 token → 通过（1 页 AEO、1 篇博文不校验）
+- 带真 token → **复现了预期卡点**：「frontmatter 标了签发日期「2026-08-10」，
+  但台账行的签发日期是空的」，台账读到 4 行
+- `aeo-ledger-writeback.mjs` dry-run → `would_update … → https://vivu.ai/blog/search-video-by-spoken-words`，
+  普通博文静默跳过
+- SSR 构建 → posts 清单收录该页、canonical 为 `/blog/<slug>`；渲染 HTML 里
+  badge 0 个、`<h1>` 1 个
+- `sla_check.py` → 规则五命中 4 行，逐条写明「签发日期为空，站点 lint 会拒绝这一页上线」
+- `daily_brief.py` → ②节出现「AEO Content Ledger 待发布 4 条（已签发未上线）」，33 行
+
+验证用的临时页面已删除，本次两个仓库都没有内容页进版本管理。
+
+## 选题去重的拍板
+
+`search video by spoken words` 与 `how to search a video library by what was said in it`
+是同一问题的两种问法（08-06 那节「边界」里已标出，留给签发环节判断）。
+**Shawn 2026-08-10 拍板：保留前者，后者不发。** 两篇都上等于自己跟自己抢排名。
+后者的台账行（`3b4059d9…c650`）需要真人在 Notion 改成非「已签发」状态，
+否则规则五会一直报它——**这一步没做，它就会天天出现在待发布清单里**。
+
+## 没做 / 待办
+
+- **台账那 4 行的「签发日期」要真人填。** 这是解冻整条链的第一步，脚本不代签。
+  填完跑 `python3 scripts/j1_publish.py --list` 看待发布清单。
+- `vivu_web` 的分支 `aeo/j2-blog-pipeline` **尚未 push、未开 PR、未合并**。
+- 第一篇真上线之后，Netlify 打开 `AEO_LINT_REQUIRE_LEDGER=true`：
+  当前 token 配错时 lint 会静默跳过台账比对而构建照绿，绿色部署不等于比对跑过。
+- 台账没有「发布日期」列（回写脚本注释里明说了不写，写进「签发日期」会覆盖真人
+  签发的日期）。发布时间目前只留在 git 与 Netlify 里。要不要加一列，等真发过几篇再说。
+- `j1_evidence.py` 登记台账时只把 `WL-` 证据写进 `证据编号` relation，`SIG-` 证据
+  哪都不写——这 4 行的 `证据编号` 与 `证据链接` 全是空的，**证据编号只存在于
+  outbox 草稿顶部的 HTML 注释里**。那个文件删了就无处可查。本次没动，
+  因为改法牵涉台账字段，属于 Phase 0 冻结字段的变更。
