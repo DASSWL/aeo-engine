@@ -25,6 +25,20 @@ playbook 不写 Query 库（那是它逐字保留的红线），所以写库这�
            "asked_after":"how to find a clip in hours of footage",
            "suggestions":["...","..."]}' | python3 scripts/query_candidates.py
 
+    收 0 的那一次同样要喂进来（2026-08-10 新增）：suggestions 给空数组 + zero_reason。
+    落 data/query_candidates_zero.jsonl，**不进候选池**（池子里只放候选本身）。
+
+    echo '{"date":"2026-08-10","engine":"Gemini","question_set":"评估式 decision maker",
+           "asked_after":"best video search tool",
+           "suggestions":[],"zero_reason":"零输出卡死"}' \
+      | python3 scripts/query_candidates.py --stage
+
+    为什么 0 也要落盘：8/10 之前本脚本只对非空 suggestions 追加行，于是「今天问了、
+    一条没收着」在数据里不存在。那天 Gemini 两次 0 的真实原因是我们自己点停了生成，
+    但候选池里的样子与「Gemini 答非所问」完全一样。三种 0 的含义天差地别
+    （`引擎答非所问` 是引擎信号，`操作中断` / `零输出卡死` 是我们这边的事故），
+    混算一个 0，这条链的产出率就是一个没法解释的数。判定口径在 playbook §3 那张表。
+
 用法：
     python3 scripts/query_candidates.py                  # dry-run：什么都不写，只算给你看
     python3 scripts/query_candidates.py --stage          # 进候选池，不写 Notion（每日常规）
@@ -49,6 +63,10 @@ from keyword_volume import classify_type   # noqa: E402
 
 SCRIPT = "query_candidates"
 POOL = os.path.join(ac.DATA_DIR, "query_candidates.jsonl")
+# 零收留档。**与候选池分开两个文件**：池子里每一行都是一条候选，
+# 有 `query 文本`，去重逻辑（load_pool → in_pool）按那个键读；
+# 一行没有 query 文本的记录混进去会当场炸掉去重。
+ZERO_LOG = os.path.join(ac.DATA_DIR, "query_candidates_zero.jsonl")
 
 
 def load_pool():
@@ -69,10 +87,21 @@ def load_pool():
     return out
 
 
-def append_pool(items):
-    with open(POOL, "a", encoding="utf-8") as fh:
+def append_jsonl(path, items):
+    with open(path, "a", encoding="utf-8") as fh:
         for it in items:
             fh.write(json.dumps(it, ensure_ascii=False) + "\n")
+
+
+def append_pool(items):
+    append_jsonl(POOL, items)
+
+
+def count_zero_log():
+    if not os.path.exists(ZERO_LOG):
+        return 0
+    with open(ZERO_LOG, encoding="utf-8") as fh:
+        return sum(1 for line in fh if line.strip())
 
 
 def hits(text, markers):
@@ -83,15 +112,20 @@ def hits(text, markers):
     return None
 
 
-def normalize_input(doc, scan_cfg):
-    """输入 → 逐条建议。缺字段就报错，不补默认值（同 scan_log_append 的口径）。"""
+def normalize_input(doc, scan_cfg, cfg):
+    """输入 → (逐条建议, 零收记录)。缺字段就报错，不补默认值（同 scan_log_append 的口径）。
+
+    `suggestions: []` 是**合法输入**（2026-08-10 起）：那是「问了、一条没收着」，
+    与「没问」不是一回事，必须带 `zero_reason` 说明是哪一种 0。
+    """
     records = doc if isinstance(doc, list) else (doc.get("records") or [doc])
     engines = set(scan_cfg["probe"]["engines"])
     sets = set(scan_cfg["probe"]["question_sets"])
+    zero_reasons = cfg["zero_reasons"]
 
-    out = []
+    out, zeros = [], []
     for rec in records:
-        for key in ("date", "engine", "question_set", "asked_after", "suggestions"):
+        for key in ("date", "engine", "question_set", "asked_after"):
             if not rec.get(key):
                 raise ValueError("记录缺字段 {!r}：{}".format(
                     key, json.dumps(rec, ensure_ascii=False)[:300]))
@@ -101,8 +135,32 @@ def normalize_input(doc, scan_cfg):
         if rec["question_set"] not in sets:
             raise ValueError("question_set {!r} 不在 scan.yaml probe.question_sets {} 里"
                              .format(rec["question_set"], sorted(sets)))
-        if not isinstance(rec["suggestions"], list):
-            raise ValueError("suggestions 必须是数组")
+        if not isinstance(rec.get("suggestions"), list):
+            raise ValueError("记录缺字段 'suggestions' 或它不是数组。"
+                             "一条都没收着时给空数组 [] 并带上 zero_reason，"
+                             "不要省掉这个字段：{}".format(
+                                 json.dumps(rec, ensure_ascii=False)[:300]))
+
+        if not rec["suggestions"]:
+            reason = rec.get("zero_reason")
+            if reason not in zero_reasons:
+                raise ValueError(
+                    "suggestions 为空时必须带 zero_reason，取值只能是 {}，"
+                    "收到 {!r}。判定口径在 playbook §3「中断与卡死怎么处置」那张表——"
+                    "三种 0 的含义不同，不许合并成一个「没收着」。".format(
+                        zero_reasons, reason))
+            zeros.append({
+                "date": rec["date"], "engine": rec["engine"],
+                "question_set": rec["question_set"],
+                "asked_after": rec["asked_after"], "zero_reason": reason,
+            })
+            continue
+
+        if rec.get("zero_reason"):
+            raise ValueError("收到了 {} 条建议却还带着 zero_reason={!r}——"
+                             "这两件事互斥，先弄清这一次到底收着没有".format(
+                                 len(rec["suggestions"]), rec["zero_reason"]))
+
         for idx, s in enumerate(rec["suggestions"]):
             if not isinstance(s, str):
                 raise ValueError("suggestions 里必须全是字符串，第 {} 项是 {}".format(
@@ -113,7 +171,7 @@ def normalize_input(doc, scan_cfg):
                 "question_set": rec["question_set"],
                 "asked_after": rec["asked_after"], "rank": idx,
             })
-    return out
+    return out, zeros
 
 
 def screen(items, cfg):
@@ -155,7 +213,20 @@ def render(r):
          "| 候选池累计 | {} |".format(c["pool_total"]),
          "| **待写 Query 库** | **{}** |".format(c["to_create"]),
          "| 被日上限截下 | {} |".format(c["capped"]),
+         "| 本次收 0 的追问 | {} |".format(c["zero_asks"]),
          ""]
+
+    if r["zeros"]:
+        L += ["## 收 0 的追问（{}`data/query_candidates_zero.jsonl`）".format(
+            "已留档 " if c["zero_logged"] else "dry-run，**未**留档，要落盘加 --stage："),
+            ""]
+        for z in r["zeros"]:
+            L.append("- {} / {} · 追问 `{}` 之后 → **{}**".format(
+                z["engine"], z["question_set"], z["asked_after"], z["zero_reason"]))
+        L += ["",
+              "> `引擎答非所问` 是引擎信号；`操作中断` / `零输出卡死` 是我们这边的事故。",
+              "> 算这条链的产出率时把后两种从分母里剔掉，否则算的是自己的操作质量。",
+              ""]
 
     if r["to_create"]:
         L += ["## 待写入（`数据来源 = AI 建议` · `状态 = 候选` · 月搜索量留空）", ""]
@@ -216,19 +287,21 @@ def main():
         if args.pool_only:
             sc.emit(SCRIPT, {"script": SCRIPT, "status": "pool_only",
                              "wrote_notion": False, "pool_total": len(pool),
+                             "zero_log_total": count_zero_log(),
                              "pool": pool}, th)
             return sc.EXIT_OK
 
         # ---- 读入 ----
         if args.pool:
-            ingested, dropped = list(pool), []
+            ingested, dropped, zeros = list(pool), [], []
         else:
             raw = (open(args.file, encoding="utf-8").read() if args.file
                    else sys.stdin.read())
             if not raw.strip():
                 raise ValueError("没有输入。用 --file 指定文件，把 JSON 从管道喂进来，"
                                  "或用 --pool 处理已在候选池里的条目。")
-            ingested, dropped = screen(normalize_input(json.loads(raw), scan_cfg), cfg)
+            items, zeros = normalize_input(json.loads(raw), scan_cfg, cfg)
+            ingested, dropped = screen(items, cfg)
 
         # ---- 去重：对 Query 库 + 对候选池 ----
         env = ac.load_env()
@@ -256,10 +329,16 @@ def main():
         #   --stage   = 进池，不写 Notion
         #   --commit  = 进池 + 写 Query 库
         pool_added = []
-        if not args.pool and fresh and (args.stage or mode == "commit"):
+        zero_logged = []
+        if not args.pool and (args.stage or mode == "commit"):
             stamp = datetime.now(tz).isoformat()
-            pool_added = [dict(it, ingested_at=stamp) for it in fresh]
-            append_pool(pool_added)
+            if fresh:
+                pool_added = [dict(it, ingested_at=stamp) for it in fresh]
+                append_pool(pool_added)
+            # 零收记录与候选走同一条写闸（dry-run 一样不写），但落**另一个文件**。
+            if zeros:
+                zero_logged = [dict(z, ingested_at=stamp) for z in zeros]
+                append_jsonl(ZERO_LOG, zero_logged)
 
         # ---- 日上限 ----
         cap = cfg["caps"]["max_per_day"]
@@ -307,7 +386,11 @@ def main():
                 "pool_total": len(pool) + len(pool_added),
                 "to_create": len(to_create_raw),
                 "capped": len(capped),
+                "zero_asks": len(zeros),
+                "zero_logged": len(zero_logged),
+                "zero_log_total": count_zero_log(),
             },
+            "zeros": zeros,
             "to_create": to_create_raw,
             "capped": capped,
             "dropped": dropped,
