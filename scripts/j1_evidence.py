@@ -48,13 +48,25 @@ LEDGER_TYPE = {
 }
 WL_RE = re.compile(r"^WL-(\d{4}-\d{2}-\d{2})-(.+)$")
 SIG_RE = re.compile(r"^SIG-([0-9a-zA-Z]+)$")
+# 降级证据两档（Shawn 2026-08-12 拍板）。哈希口径必须与 j1_runner 的
+# probe_candidates / keyword_candidates 逐字一致，否则编号解析不回去。
+PRB_RE = re.compile(r"^PRB-([0-9a-zA-Z]+)$")
+KW_RE = re.compile(r"^KW-([0-9a-zA-Z]+)$")
 
 
-def resolve_evidence(codes, winloss, pipeline):
+def resolve_evidence(codes, winloss, pipeline, probe=None, queries=None):
     """闸门①：逐条把证据编号解析到五库里的真实行。
 
     解析不了就逐条列出缺什么——「缺什么」比「拒绝」有用得多，
     因为真人看到缺口才知道下一步该去补哪一行。
+
+    四种编号，**证据强度完全不同**，kind 一路传到台账与上报：
+      WL-  win/loss 行     —— 成交/失单对话，最强
+      SIG- 水箱行          —— 买家本人说的话
+      PRB- 探测记录行      —— **引擎生成的内容**，不是买家痛点、不是事实来源
+      KW-  Query 库行      —— 只是「有人搜过这个词」的需求信号
+    后两档是 2026-08-12 放宽生产条件时加的降级源（水箱可用证据只有 15 条）。
+    闸门放行它们，但绝不把它们记成同一种东西。
     """
     wl_by_key, wl_titles = {}, []
     for row in winloss:
@@ -76,6 +88,25 @@ def resolve_evidence(codes, winloss, pipeline):
             import hashlib
             h = hashlib.sha1(sc.norm_url(url).encode("utf-8")).hexdigest()[:8]
             sig_by_hash[h] = row
+
+    import hashlib
+    prb_by_hash = {}
+    for row in (probe or []):
+        p = row.get("properties", {})
+        question = ac.rich_text(p, "具体问题").strip()
+        if not question:
+            continue
+        date = ((p.get("日期") or {}).get("date") or {}).get("start") or ""
+        key = "{}|{}|{}".format(date[:10], ac.select_name(p, "引擎"),
+                                sc.norm_query(question))
+        prb_by_hash[hashlib.sha1(key.encode("utf-8")).hexdigest()[:8]] = row
+
+    kw_by_hash = {}
+    for row in (queries or []):
+        text = ac.title_text(row.get("properties", {}), "query 文本").strip()
+        if text:
+            kw_by_hash[hashlib.sha1(
+                sc.norm_query(text).encode("utf-8")).hexdigest()[:8]] = row
 
     resolved, missing = [], []
     for code in codes:
@@ -105,8 +136,33 @@ def resolve_evidence(codes, winloss, pipeline):
                                 "why": "水箱里没有来源链接哈希为 {} 的行".format(m.group(1)),
                                 "pipeline_rows_available": len(pipeline)})
             continue
+        m = PRB_RE.match(code)
+        if m:
+            row = prb_by_hash.get(m.group(1))
+            if row:
+                resolved.append({"code": code, "kind": "probe",
+                                 "row_id": row["id"], "url": row.get("url")})
+            else:
+                missing.append({"code": code, "kind": "probe",
+                                "why": "探测记录库里没有 日期|引擎|问题 哈希为 {} 的行".format(
+                                    m.group(1)),
+                                "probe_rows_available": len(probe or [])})
+            continue
+        m = KW_RE.match(code)
+        if m:
+            row = kw_by_hash.get(m.group(1))
+            if row:
+                resolved.append({"code": code, "kind": "query",
+                                 "row_id": row["id"], "url": row.get("url")})
+            else:
+                missing.append({"code": code, "kind": "query",
+                                "why": "Query 库里没有 query 文本哈希为 {} 的行".format(
+                                    m.group(1)),
+                                "query_rows_available": len(queries or [])})
+            continue
         missing.append({"code": code, "kind": "unknown",
-                        "why": "编号格式不合法。只认 WL-日期-公司 或 SIG-链接哈希"})
+                        "why": "编号格式不合法。只认 WL-日期-公司 / SIG-链接哈希 / "
+                               "PRB-探测行哈希 / KW-query 哈希"})
     return resolved, missing
 
 
@@ -176,6 +232,8 @@ def main():
         pipeline = notion.query_all(env["DS_PIPELINE"])
         ledger = notion.query_all(env["DS_LEDGER"])
         queries = notion.query_all(env["DS_QUERY"])
+        # 降级证据两档要解析,所以探测记录库也要读(2026-08-12)
+        probe = notion.query_all(env["DS_PROBE"])
 
         result = {
             "script": SCRIPT, "mode": sc.resolve_mode(args),
@@ -208,7 +266,8 @@ def main():
                 "补法：给 --evidence WL-日期-公司（win/loss 行）或 SIG-链接哈希（水箱信号行）。",
                 "当前 win/loss 库 {} 行、水箱 {} 行。".format(len(winloss), len(pipeline)),
             ])
-        resolved, missing = resolve_evidence(args.evidence, winloss, pipeline)
+        resolved, missing = resolve_evidence(args.evidence, winloss, pipeline,
+                                             probe, queries)
         if missing:
             result["gates"]["1_evidence"] = "refused"
             result["resolved_evidence"] = resolved
@@ -256,8 +315,9 @@ def main():
             # 结构上装不下水箱行，所以这里只能收 WL-。这不是漏写，是 schema 约束。
             "证据编号": sc.p_relation([r["row_id"] for r in resolved
                                        if r["kind"] == "winloss"]),
-            # SIG-（水箱行）走这一列。2026-08-12 Shawn 拍板加列（台账第五次解冻，
-            # rich_text，additive，既有 9 列未动）。
+            # 非 WL- 的编号全走这一列（SIG- / PRB- / KW-）。
+            # 2026-08-12 Shawn 拍板加列（台账第五次解冻，rich_text，additive，
+            # 既有 9 列未动）；同日加降级证据两档后由 (SIG) 改名为 (明细)。
             #
             # 为什么非加不可：闸门①在写入时强制「每条对外内容挂证据编号」
             # （spec 全局硬约束），但挂完之后 **一个字都没存进库**——
@@ -266,8 +326,8 @@ def main():
             # 证据写的」只活在 outbox 草稿的 HTML 注释（不进 git）与已发布页的
             # frontmatter 里。那条「已下线」的行两样都没有，它的证据**已经查不回来了**。
             # 闸门守住了写入那一刻，却没守住三个月后回头查的时候。
-            "证据编号(SIG)": sc.p_text(", ".join(
-                r["code"] for r in resolved if r["kind"] == "pipeline")),
+            "证据编号(明细)": sc.p_text(", ".join(
+                r["code"] for r in resolved if r["kind"] != "winloss")),
             "状态": sc.p_select("草稿"),
             "创建日期": sc.p_date(now.strftime("%Y-%m-%d")),
         }
@@ -275,8 +335,11 @@ def main():
         result["ledger_row_planned"] = {
             "类型": LEDGER_TYPE[args.type], "状态": "草稿",
             "证据编号_relations": len([r for r in resolved if r["kind"] == "winloss"]),
-            "证据编号(SIG)": ", ".join(r["code"] for r in resolved
-                                       if r["kind"] == "pipeline"),
+            "证据编号(明细)": ", ".join(r["code"] for r in resolved
+                                        if r["kind"] != "winloss"),
+            # 档位分布单独报一行：三档不是同一种东西，合成一个数等于没报。
+            "证据档位": {k: len([r for r in resolved if r["kind"] == k])
+                         for k in ("winloss", "pipeline", "probe", "query")},
         }
         if sc.resolve_mode(args) == "commit":
             page = notion.create_page(env["DS_LEDGER"], ledger_props)

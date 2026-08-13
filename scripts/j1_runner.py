@@ -263,6 +263,81 @@ def evidence_candidates(pipeline, cfg):
     return deduped[:ev["max_candidates_in_prompt"]]
 
 
+def probe_candidates(probe_rows, cfg):
+    """降级证据 · 第二档:探测记录库 → PRB- 编号 + 引擎回答摘录。
+
+    ⚠️ 这**不是**买家痛点。它是引擎生成的内容,说明的是「现在搜这个问题的人
+    会看到什么答案」,即这篇文章要压过谁。把它当买家的话用,等于拿 ChatGPT
+    对买家的猜测冒充买家本人;把里面的产品描述当事实用,等于把引擎的幻觉
+    洗进 vivu.ai 的正文。档位语义一路传到 prompt 与台账,见 j1.yaml 的注释。
+    """
+    import hashlib
+    fb = (cfg["evidence"].get("fallback") or {})
+    if not fb.get("enabled"):
+        return []
+    pc = fb.get("probe") or {}
+    engines = pc.get("engines") or []
+
+    out, seen = [], set()
+    for row in probe_rows:
+        p = row.get("properties", {})
+        engine = ac.select_name(p, "引擎")
+        question = ac.rich_text(p, "具体问题").strip()
+        excerpt = ac.rich_text(p, "回答摘录").strip()
+        date = ((p.get("日期") or {}).get("date") or {}).get("start") or ""
+        if not question or not excerpt:
+            continue
+        if engines and engine not in engines:
+            continue
+        # 去重键 = 日期|引擎|问题,与 j1_evidence.resolve_evidence 逐字一致。
+        # 编号必须能从行本身重算出来,否则解析不回去——这与 SIG 同一口径。
+        key = "{}|{}|{}".format(date[:10], engine, sc.norm_query(question))
+        code = "PRB-" + hashlib.sha1(key.encode("utf-8")).hexdigest()[:8]
+        if code in seen:
+            continue
+        seen.add(code)
+        out.append({"code": code, "row_id": row.get("id"),
+                    "engine": engine, "question": question,
+                    "被引用竞品": ac.rich_text(p, "被引用竞品"),
+                    "品类答案是否形成": ac.select_name(p, "品类答案是否形成"),
+                    "quote": excerpt[:pc.get("excerpt_max_chars", 260)]})
+    return out[:pc.get("max_candidates_in_prompt", 8)]
+
+
+def keyword_candidates(queries, cfg):
+    """降级证据 · 第三档:Query 库有量的词 → KW- 编号 + 月搜索量。
+
+    ⚠️ 这只是一个**检索需求信号**:有人搜这个词。它**不说明他为什么搜、
+    也不说明他难在哪**。拿它当痛点写,写出来的痛点是编的。
+    """
+    import hashlib
+    fb = (cfg["evidence"].get("fallback") or {})
+    if not fb.get("enabled"):
+        return []
+    kc = fb.get("keyword") or {}
+
+    out, seen = [], set()
+    for row in queries:
+        p = row.get("properties", {})
+        text = ac.title_text(p, "query 文本").strip()
+        vol = (p.get("月搜索量") or {}).get("number")
+        rng = ac.rich_text(p, "搜索量区间").strip()
+        if not text:
+            continue
+        if kc.get("require_volume", True) and vol is None and not rng:
+            continue
+        code = "KW-" + hashlib.sha1(
+            sc.norm_query(text).encode("utf-8")).hexdigest()[:8]
+        if code in seen:
+            continue
+        seen.add(code)
+        out.append({"code": code, "row_id": row.get("id"), "query": text,
+                    "月搜索量": vol, "搜索量区间": rng,
+                    "数据来源": ac.select_name(p, "数据来源")})
+    out.sort(key=lambda r: -(r["月搜索量"] or 0))
+    return out[:kc.get("max_candidates_in_prompt", 8)]
+
+
 def confirmed_facts(cfg):
     """facts.json 里 status=已确认 的字段 → prompt 用的事实清单。
 
@@ -301,7 +376,8 @@ def confirmed_facts(cfg):
     return lines, negatives
 
 
-def build_prompt(items, candidates, cfg, skill_report):
+def build_prompt(items, candidates, cfg, skill_report,
+                 probe_cands=None, kw_cands=None):
     fact_lines, negatives = confirmed_facts(cfg)
     art = cfg["article"]
     missing = skill_report.get("missing_required") or []
@@ -339,19 +415,73 @@ def build_prompt(items, candidates, cfg, skill_report):
         lines.append("- ⛔ {}".format(n))
     lines += [
         "",
-        "## 证据候选(真实买家痛点,决定文章的痛点形态)",
+        "## 证据 · 第一档 SIG(真实买家原话,唯一能校准痛点形态的东西)",
         "",
         "每条是水箱里一行真实信号的原话摘录。规则:",
         "- 每篇文章从下面挑 1-3 条与该 query 痛点形态吻合的证据,"
         "在 EVIDENCE 行写出它们的编号。",
         "- 证据只用来校准痛点写法。**正文不许出现当事人身份、公司名或原话直引**。",
-        "- 一条都配不上的 query 不要硬写:输出 REFUSE 包说明原因。"
-        "没有证据的内容只能靠编,而编造正是这条产线的闸门要防的。",
+        "- **优先用这一档。** 只有这一档一条都配不上时,才往下看第二、三档。",
         "",
     ]
 
     for c in candidates:
         lines.append("- {}: {}".format(c["code"], c["quote"]))
+
+    if probe_cands or kw_cands:
+        lines += [
+            "",
+            "## 降级证据(**只在第一档一条都配不上时才用**)",
+            "",
+            "⚠️ **下面两档不是买家说的话。** 用它们写出来的文章,痛点形态没有真人"
+            "证据背书 —— 这是一次有代价的降级,不是等价替换。所以:",
+            "- 能用第一档就绝不用这两档;混用时 EVIDENCE 行把用到的编号都写上。",
+            "- 只用了这两档的文章,**不许写任何关于「买家感受 / 买家处境」的断言**"
+            "(`teams struggle with…`、`editors waste hours…` 这类)。"
+            "你没有任何证据支持那句话。",
+            "- 写法改成描述性的:这个问题存在、现在的答案长什么样、缺了哪一块。",
+            "",
+        ]
+    if probe_cands:
+        lines += [
+            "### 第二档 PRB —— AI 引擎现在怎么答这个问题",
+            "",
+            "这是 ChatGPT / Gemini **生成的内容**,说明的是「今天搜这个问题的人"
+            "会看到什么答案」,也就是这篇文章要压过谁。",
+            "",
+            "- ⛔ **不是买家痛点。** 引擎对买家的猜测不等于买家的话。",
+            "- ⛔ **不是事实来源。** 里面出现的任何产品能力、价格、数字一律不许引用"
+            " —— 正文里的产品事实只能来自上面的 facts.json。引擎会一本正经地编。",
+            "- ✅ 可以用来:判断这个问题的答案空间长什么样、哪些工具已经占了位、"
+            "现有答案缺了哪一块。",
+            "",
+        ]
+        for c in probe_cands:
+            lines.append("- {} [{}｜品类答案:{}] Q: {} ‖ A: {}".format(
+                c["code"], c["engine"], c["品类答案是否形成"] or "?",
+                c["question"], c["quote"]))
+        lines.append("")
+    if kw_cands:
+        lines += [
+            "### 第三档 KW —— 有人搜这个词(只是需求信号)",
+            "",
+            "- ⛔ 它**不说明**这些人为什么搜、也不说明他们难在哪。"
+            "拿它当痛点写,写出来的痛点是编的。",
+            "- ✅ 可以用来:确认这个问法真的有人在搜、相邻的问法有哪些。",
+            "",
+        ]
+        for c in kw_cands:
+            lines.append("- {} `{}` — 月搜索量 {}{}".format(
+                c["code"], c["query"],
+                c["月搜索量"] if c["月搜索量"] is not None else "无",
+                "(区间 {})".format(c["搜索量区间"]) if c["搜索量区间"] else ""))
+        lines.append("")
+
+    lines += [
+        "> 三档都配不上的 query 才 REFUSE。没有任何证据的内容只能靠编,"
+        "而编造正是这条产线的闸门要防的。",
+        "",
+    ]
 
     rp = cfg["refusal_policy"]
     lines += [
@@ -548,8 +678,13 @@ def main():
             with open(args.assemble, encoding="utf-8") as fh:
                 drafts, refused = parse_output(fh.read())
 
-            cand_codes = {c["code"] for c in plan["evidence_candidates"]}
-            cand_by_code = {c["code"]: c for c in plan["evidence_candidates"]}
+            # 三档候选一起进校验表——claude 引用了哪一档都要能对上。
+            # 旧 plan 文件没有后两个键,用 .get 兜住,不让 assemble 因为读老 plan 而炸。
+            all_cands = (plan["evidence_candidates"]
+                         + plan.get("probe_candidates", [])
+                         + plan.get("keyword_candidates", []))
+            cand_codes = {c["code"] for c in all_cands}
+            cand_by_code = {c["code"]: c for c in all_cands}
             commit = sc.resolve_mode(args) == "commit"
 
             # 台账新鲜快照,防 assemble 重跑重复登记(plan 时的去重只防选题层面)
@@ -671,6 +806,11 @@ def main():
         if args.limit is not None:
             picked = picked[:args.limit]
         candidates = evidence_candidates(pipeline, cfg)
+        # 降级证据两档。空列表也照常往下走——build_prompt 会自己跳过空档,
+        # 有几档就说几档,不制造「这里本该有东西」的错觉。
+        probe_rows = notion.query_all(env["DS_PROBE"])
+        probe_cands = probe_candidates(probe_rows, cfg)
+        kw_cands = keyword_candidates(queries, cfg)
 
         result = {
             "script": SCRIPT, "step": "plan", "mode": sc.resolve_mode(args),
@@ -680,6 +820,8 @@ def main():
             "drafts": picked, "skipped": skipped,
             "ranked_queue": ranked,
             "evidence_candidates": candidates,
+            "probe_candidates": probe_cands,
+            "keyword_candidates": kw_cands,
             "skill_report": skill_report,
         }
 
@@ -688,7 +830,8 @@ def main():
             # 诊断性 dry-run 不碰它——Phase 3 §七④ 覆写事故的教训。
             with open(plan_path_default, "w", encoding="utf-8") as fh:
                 json.dump(result, fh, ensure_ascii=False, indent=2)
-            prompt = build_prompt(picked, candidates, cfg, skill_report)
+            prompt = build_prompt(picked, candidates, cfg, skill_report,
+                                  probe_cands, kw_cands)
             with open(args.emit_prompt, "w", encoding="utf-8") as fh:
                 fh.write(prompt)
             result["plan_file"] = plan_path_default
