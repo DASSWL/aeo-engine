@@ -2260,3 +2260,65 @@ KW-  = sha1("norm_query(query 文本)")[:8]
 
 真正的解法仍然是把水箱的真原话产出提上去：现在 76% 的行是 Apollo 名单命中，
 那条链一条可用证据都带不来。这一条本次未动。
+
+# 2026-08-12（夜）：台账在 Notion 里读不到内容 + 站点 lint 会拒降级证据
+
+Shawn 在台账页（`4a46acc3-c08f-457b-8771-43328b58e896`）上提了两件事：
+「标题和你的标题不一样」「看不到具体内容，应该去哪里看」。查的过程中
+撞出一个更要紧的、当天由我引入的破坏。
+
+## 一、⚠️ 站点 lint 会拒 PRB-/KW-，降级证据写的页一上线就 build fail
+
+`vivu_web/scripts/aeo-lint.mjs:45` 的 `EVIDENCE_RE` 只认两种前缀：
+
+```js
+const EVIDENCE_RE = /^(WL-\d{4}-\d{2}-\d{2}-.+|SIG-[0-9a-zA-Z]+)$/;
+```
+
+而当天下午刚加的降级证据会产出 `PRB-` / `KW-` 编号（`ai video online`
+那篇的 evidence 就是 `PRB-fa64cf71, PRB-37856095, KW-085d9568`）。
+签发后走 `j1_publish.py` 写进 frontmatter，**lint 当场判红，整个站点 build fail**。
+
+**这不是 lint 判对了，是两边口径没同步**——加编号种类时只改了 aeo-engine 一侧。
+已改 `EVIDENCE_RE` 收四种前缀，报错文案同步。实测：四种真编号通过，
+`XX-1` / `PRB-`（空哈希）/ `SIG-$$` 照常被拒；`node scripts/aeo-lint.mjs` 3 页通过。
+
+> 教训记这里：**证据编号的口径存在两个仓库里**（aeo-engine 的
+> `j1_evidence.resolve_evidence` 与 vivu_web 的 `aeo-lint.mjs`）。
+> 以后再加编号种类，两边必须同一次改完——单边改的后果不是拒稿，是站点发不出去。
+
+## 二、标题对不上：台账 title 是选题，不是文章标题
+
+`j1_evidence.py` 建台账行时**只有选题、还没有标题**（标题是 claude 写完才有的），
+所以 `资产名` 只能写 `AEO 内容｜<选题>`。结果 Notion 列表视图里每一行显示的
+都是选题，与文章标题对不上。
+
+改：assemble 拿到 claude 的标题后回写 `资产名` = `AEO 内容｜<文章标题>`。
+选题不丢——它在 `面向` 列里，且下游匹配（`j1_publish`、台账去重）一直走那一列。
+
+## 三、正文此前完全不在 Notion
+
+文章正文只活在 `outbox/j1_draft_*.md`（**不进 git**）与已发布页
+（`vivu_web/src/content/posts/`，进 git）。台账行点进去是空白页。
+
+新增 `mirror_article_to_ledger()`，形态照抄 J4 的既有实现
+（`draft_runner.mirror_draft_to_page`，2026-08-06 落成）：
+台账行页面正文追加 `文章标题 heading` + 元信息 code block（选题 / 证据编号 /
+本机草稿路径 / 签发怎么做）+ 正文 code block。用 code block 是为了 Notion
+一键复制、手机免圈选。
+
+- 镜像失败**不炸 run**：文件已落 outbox、台账行已登记，这一步只是可读性。
+- 追加后独立回读（重列 children 找 heading），不信 append 自己的回执。
+- 按 heading 去重，assemble 重跑幂等。
+
+## 现在在 Notion 台账看得到什么
+
+| | 草稿行（新产线） | 已发布/旧行 |
+|---|---|---|
+| 标题 | 文章标题 ✅ | 仍是选题（手写样稿，未回填） |
+| 正文 | 页面里可读、可复制 ✅ | 空——那三行是 2026-08-06 前的产物，无镜像 |
+| 发布链接 | 尚无（草稿） | ✅ 指向 vivu.ai |
+| 证据编号(明细) | ✅ | ✅ |
+
+三行旧的已发布行没有回填正文镜像：它们的正文在 vivu.ai 上已经能读，
+且其中两行是手写样稿、没有对应的 outbox 草稿文件。**没有的东西不假装补上。**

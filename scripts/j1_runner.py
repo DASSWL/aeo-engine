@@ -610,6 +610,64 @@ def article_file(item, draft, candidates_by_code, now):
     return "\n".join(header) + draft["body"] + "\n"
 
 
+def _chunks(text, size=1900):
+    """Notion 单个 rich_text 元素上限 2000 字符,切块。同 draft_runner 的口径。"""
+    text = text or ""
+    return [{"type": "text", "text": {"content": text[i:i + size]}}
+            for i in range(0, max(len(text), 1), size)] or \
+           [{"type": "text", "text": {"content": ""}}]
+
+
+def mirror_article_to_ledger(notion, ledger_row_id, item, draft, outfile, now):
+    """把文章正文镜像到台账行的页面正文里。返回一条结果记录,不抛异常。
+
+    Shawn 2026-08-12 在 Notion 台账页上提的两件事:
+      「标题和你的标题不一样」—— 台账 title 是 `资产名`(= AEO 内容｜选题),
+        **文章标题此前在 Notion 里根本不存在**,只活在 outbox 草稿和已发布页 frontmatter。
+      「看不到具体内容,应该去哪里看」—— 正文此前完全不在 Notion。
+
+    做法照抄 J4 的既有形态(draft_runner.mirror_draft_to_page,2026-08-06 落成):
+    页面正文追加 = 文章标题 + 路径/链接 + 正文 code block。
+    用 code block 是为了 Notion 一键复制,手机上免圈选。
+
+    失败不炸 run:文件已落 outbox、台账行已登记,镜像只是可读性。
+    追加后独立回读核对(重列 children 找 heading),不信 append 自己的回执。
+    按 heading 去重,assemble 重跑幂等。
+    """
+    heading = "{}｜{}".format(now.strftime("%Y-%m-%d"), draft["title"])
+
+    def heading_exists():
+        kids = notion.list_children(ledger_row_id).get("results", [])
+        return any(
+            b.get("type") == "heading_3" and heading == "".join(
+                t.get("plain_text", "") for t in b["heading_3"].get("rich_text", []))
+            for b in kids)
+
+    meta = [
+        "选题(面向):  {}".format(item["query"]),
+        "证据编号:     {}".format(", ".join(draft["evidence"])),
+        "本机草稿:     {}".format(outfile),
+        "状态:         草稿——签发 = 把「状态」改成「已签发」,签发日期会自动回填",
+    ]
+    blocks = [
+        {"object": "block", "type": "heading_3",
+         "heading_3": {"rich_text": _chunks(heading)}},
+        {"object": "block", "type": "code",
+         "code": {"language": "plain text", "rich_text": _chunks("\n".join(meta))}},
+        {"object": "block", "type": "code",
+         "code": {"language": "markdown", "rich_text": _chunks(draft["body"].strip())}},
+    ]
+    try:
+        if heading_exists():
+            return {"ledger_row_id": ledger_row_id, "status": "already_mirrored"}
+        notion.append_blocks(ledger_row_id, blocks)
+        return {"ledger_row_id": ledger_row_id, "status": "mirrored",
+                "readback_ok": heading_exists()}
+    except Exception as exc:                                   # noqa: BLE001
+        return {"ledger_row_id": ledger_row_id, "status": "failed",
+                "error": str(exc)[:300]}
+
+
 def notify_file(item, draft, ledger, outfile, cfg):
     row_id = (ledger or {}).get("ledger_row_id") or ""
     notion_url = ("https://www.notion.so/" + row_id.replace("-", "")) if row_id else "(未登记)"
@@ -715,6 +773,7 @@ def main():
                 fname = "j1_draft_{}_{}.md".format(now.strftime("%Y-%m-%d"), slug)
                 fpath = os.path.join(ac.REPO, "outbox", fname)
                 ledger_result = None
+                mirror = None
                 if commit:
                     ac.write_outbox(fname, article_file(item, d, cand_by_code, now))
                     if sc.norm_query(item["query"]) in ledger_facing:
@@ -730,10 +789,33 @@ def main():
                     nname = "j1_notify_{}_{}.md".format(now.strftime("%Y-%m-%d"), slug)
                     ac.write_outbox(nname, notify_file(item, d, ledger_result,
                                                        fpath, cfg))
+                    # 正文镜像进台账行页面。镜像失败不炸 run——文件已落 outbox、
+                    # 台账行已登记,这一步只是让人在 Notion 里读得到。
+                    if ledger_result.get("ledger_row_id"):
+                        # 资产名带上**文章标题**。j1_evidence 建行时只有选题、
+                        # 还没有标题(标题是 claude 写完才有的),所以那边只能写
+                        # 「AEO 内容｜<选题>」。结果是 Notion 列表视图里每一行
+                        # 显示的都是选题,与文章标题对不上——Shawn 2026-08-12
+                        # 在台账页上第一句就是「标题和你的标题不一样」。
+                        # 选题不丢:它在「面向」列里,且下游匹配一直走那一列。
+                        try:
+                            notion.update_page(
+                                ledger_result["ledger_row_id"],
+                                {"资产名": sc.p_title("AEO 内容｜{}".format(d["title"]))})
+                        except Exception as exc:               # noqa: BLE001
+                            print("TITLE_UPDATE_FAILED {}: {}".format(
+                                slug, str(exc)[:200]), file=sys.stderr)
+                        mirror = mirror_article_to_ledger(
+                            notion, ledger_result["ledger_row_id"], item, d,
+                            fpath, now)
+                        if mirror["status"] == "failed":
+                            print("MIRROR_FAILED {}: {}".format(
+                                slug, mirror.get("error")), file=sys.stderr)
                 written.append({"slug": slug, "query": item["query"],
                                 "title": d["title"], "evidence": d["evidence"],
                                 "file": fname,
-                                "ledger": ledger_result})
+                                "ledger": ledger_result,
+                                "notion_mirror": mirror})
 
             # 独立回读:重新拉台账,逐篇确认「面向」能找到,不信 create 回执
             readback = []
