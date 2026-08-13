@@ -18,10 +18,13 @@
       在这里抢先写，就等于用「文件生成了」冒充「页面上线了」。
     * **不碰 git。** 提交、开 PR、合并都是真人动作。
 
-三个字段脚本不猜，缺了就拒绝：
+两个字段脚本不猜，缺了就拒绝：
     segment       —— 面向哪个 segment 是判断，不是查表
     anchor_terms  —— 必须落在 facts.json 已确认集合内，选哪几个是编辑决定
-    签发日期      —— 台账里没填就拒绝，理由见 refuse_no_signoff_date 那段
+
+签发日期不再要真人填（Shawn 2026-08-12：「签发我只改签发状态，签发日期自动回填」）：
+    scripts/ledger_signoff_date.py 每天 08:15 按 last_edited_time 回填。
+    本脚本仍然会在日期为空时挡一下，但那是「等回填跑到」，不是「你去手填」。
 
 用法：
     python3 scripts/j1_publish.py --list
@@ -230,10 +233,22 @@ def main():
         if published_url:
             refusals.append("这一行已有发布链接 {}，不重复生成。".format(published_url))
         if not signed_off:
-            # 只改状态不填日期会被站点 lint 两头堵死：填了 signed_off 报「台账
-            # 签发日期是空的」，不填报「signed_off 为空」，两条路都 build fail。
-            refusals.append("台账「签发日期」是空的。签发 = 改状态 + 填日期，两件事。"
-                            "只改状态的话，站点 lint 无论 frontmatter 怎么写都会 build fail。")
+            # 2026-08-12 Shawn 拍板「签发我只改签发状态，签发日期自动回填」。
+            # 原来这里直接拒稿，理由是站点 lint 两头堵死（填了 frontmatter 的
+            # signed_off 报「台账签发日期是空的」，不填报「signed_off 为空」）。
+            # 那个 lint 约束一个字没变——变的是**谁来填**：
+            # scripts/ledger_signoff_date.py 每天 08:15 回填，取 last_edited_time。
+            #
+            # 这里因此从「拒稿」降为「等一轮」：不是不该发，是回填还没跑到。
+            # 仍然不在本脚本里就地补写——本脚本的契约是**不写 Notion 一个字**
+            # （状态推「已发布」是站点 build 里 aeo-ledger-writeback.mjs 的活），
+            # 破这条会开出第二条台账写路径，两边迟早打架。
+            refusals.append(
+                "台账「签发日期」还是空的——signoff 回填任务（每天 08:15，"
+                "scripts/ledger_signoff_date.py）还没跑到这一行。"
+                "**你不用手填**：等下一轮回填，或立刻手动跑一次 "
+                "`python3 scripts/ledger_signoff_date.py --commit` 再发。"
+                "带空日期发出去会让站点 lint build fail，所以这里先挡住。")
 
         draft = None
         if args.draft:
