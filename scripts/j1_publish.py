@@ -53,7 +53,16 @@ LEDGER_SIGNED = "已签发"
 DRAFT_RE = re.compile(r"^j1_(?:draft|sample)_\d{4}-\d{2}-\d{2}_(?P<slug>.+)\.md$")
 # 证据编号从草稿头部注释里捞。样稿写成 `SIG-xxx(说明)`、产线稿写成 `SIG-xxx, SIG-yyy`，
 # 两种格式都有，所以按编号本身的形状抓，不按分隔符切。
-EVIDENCE_RE = re.compile(r"\b(WL-\d{4}-\d{2}-\d{2}-[^\s,(（]+|SIG-[0-9a-zA-Z]+)")
+#
+# ⚠️ 2026-08-13 修：原来只认 WL-/SIG-，于是**任何用降级证据写的页都发不出去**——
+# 拒稿理由是「草稿头部注释里没抓到证据编号」，读起来像草稿坏了，其实是这条正则
+# 比产线少认两种编号。PRB-/KW- 是 2026-08-12 放宽生产条件时加的降级证据源
+# （j1_runner.py、j1_evidence.py、config/j1.yaml 当天就认了），站点侧
+# aeo-lint.mjs 也在同一轮补上（vivu_web 60dccdd），唯独这里漏了。
+# ai-video-online（证据全是 PRB-/KW-）是第一篇真的撞上的。
+# 四种编号的强度口径见 j1_evidence.py 与 aeo-lint.mjs，三处必须一致。
+EVIDENCE_RE = re.compile(
+    r"\b(WL-\d{4}-\d{2}-\d{2}-[^\s,(（]+|(?:SIG|PRB|KW)-[0-9a-zA-Z]+)")
 COMMENT_RE = re.compile(r"\A\s*<!--.*?-->\s*", re.S)
 SLUG_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 

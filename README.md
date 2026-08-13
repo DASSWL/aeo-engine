@@ -2322,3 +2322,223 @@ const EVIDENCE_RE = /^(WL-\d{4}-\d{2}-\d{2}-.+|SIG-[0-9a-zA-Z]+)$/;
 
 三行旧的已发布行没有回填正文镜像：它们的正文在 vivu.ai 上已经能读，
 且其中两行是手写样稿、没有对应的 outbox 草稿文件。**没有的东西不假装补上。**
+
+---
+
+# 2026-08-13：Vivu 在正文里怎么出现 + 发布时间不再暴露给爬虫
+
+两条都是 Shawn 2026-08-13 拍板，一条改产线，一条改站点。
+
+## 一、通病：每一篇都有一段一模一样的 Vivu 小节
+
+到 08-13 为止,这条产线出的 8 篇(3 篇已发布 + 5 篇 outbox 草稿)**每一篇**都长出
+一段独立的 Vivu 小节,标题换了四个写法,内容是同一份清单、同一个顺序:
+
+| 文章 | 那一节的标题 |
+|---|---|
+| how-to-find-an-old-brand-video | `## Search the footage itself` |
+| livestream-highlights | `## Search the archive by what was said` |
+| search-video-by-spoken-words | `## Tools built to retrieve from footage` |
+| ai-assistant-video-editor | `## Where Vivu sits` |
+| ai-powered-video-editor | `## Where Vivu sits` |
+| ai-video-online | `## Where Vivu sits` |
+| ai-video-editing-studio | `## Where Vivu sits` |
+| video-editing-made-easy | `## Where Vivu fits` |
+
+清单固定是:连存储 → 入库索引一次 → 返回带上下文的时间点 → 不剪辑不生成 →
+素材私有 → MCP → 有 API 但不需要开发者。七条事实,八篇文章,一字不改。
+
+**病根在 prompt,不在执行体。** facts.json 被交代成「唯一可用的事实集合,一个字都
+不许超出」,但没有任何一条规则说**用几条、放哪儿、跟这一篇的上下文怎么挂钩**。
+上限被当成了清单,于是默认解法就是开一个 H2 把它倒完。那不是文章的一部分,
+是贴在文章上的产品说明书:读者一眼认出是广告就跳过,answer engine 也拿不到任何
+这一篇独有的东西 —— 八篇在这一段上完全可替换,等于八篇共享同一段无差别内容。
+
+### 改了什么
+
+`config/j1.yaml` 新增 `article.vivu_mention`(业务值全在配置里,脚本不写死):
+
+- `max_sentences: 3` —— 全文谈 Vivu 的句子上限,结尾固定 CTA 不计入。
+- `rules` —— 七条,逐条进 prompt。核心三条:不许有以 Vivu 为主语的小节标题
+  (换个中性标题接着倒清单同样不算数);路线小节写**品类**不写 Vivu;
+  这几句必须贴本篇的具体问题,同一句能原样搬到另一篇就说明没贴上下文。
+
+`scripts/j1_runner.py`:
+
+- 新增 `vivu_mention_block()` —— 把配置讲成执行体读得懂的一节,**并把「为什么」
+  一起递过去**。只给禁令不给理由,执行体会换个标题接着犯(上表就是证据)。
+  配置缺这一节时返回空,老配置照跑。
+- 事实清单那一节加一句「这是**上限,不是清单**」。
+- 「诚实展开所有路线」改成「路线是**品类**,不是产品」。
+
+⚠️ 这一轮里事实边界**先没动**:能说的仍然只有 facts.json 已确认字段,放开的只是
+**角度**(允许把已确认事实落到这一篇的处境上)。改稿时踩到两次这条线,都退回去了:
+「新 footage 自动进 searchable set」、「nothing gets uploaded」——两句都是真的,
+但当时都不在 facts.json 里。**正是这两次退让把边界本身的问题暴露了出来,
+于是同一天有了下面第三节的拍板。** 下面那一节是这一段的后续,以它为准。
+
+### 存量 8 篇已逐篇重写
+
+3 篇已发布(vivu_web,需真人 commit + PR)+ 5 篇 outbox 草稿。每篇的 2-3 句都挂在
+**这一篇自己的**痛点上,互不重复:
+
+- search-video-by-spoken-words → 挂「grep 给你三十个命中还得逐个看」+「按集数付
+  转录费的老库存」
+- livestream-highlights → 挂「跨三十场录像的问题」+ 剪辑留在编辑手里
+- how-to-find-an-old-brand-video → 挂「自建索引死在第二年」
+- video-editing-made-easy → 并进已有的路线清单条目,不单开小节
+- ai-assistant-video-editor → 挂「全项目搜一句话」这个反复被要的功能
+- ai-powered-video-editor → 挂「四类工具都不解决 selection」
+- ai-video-online → 挂「素材散在硬盘/网盘/前一家供应商的老 NAS」
+- ai-video-editing-studio → 挂「说出口的 vs 没说出口的检索」
+
+自检口径写进了 prompt:把这几句单独抄出来,问「换成上一篇的题目还成立吗」。
+
+## 二、发布时间不再暴露给爬虫(改的是 vivu_web)
+
+frontmatter 的 `date` / `updated` **保留**(内容契约、台账、最新在前的排序都要它),
+但站点不再把它渲染出去、也不再发出去。四个出口全堵:
+
+| 出口 | 原来 | 现在 |
+|---|---|---|
+| 文章页 / `/blog` 列表 | `<time>` 显示发布日 | 只剩署名,无 `<time>` |
+| `Article` JSON-LD | `datePublished` + `dateModified` | 两个都不发 |
+| `sitemap.xml` | 文章取 frontmatter 日期 | 全站统一取构建日 |
+| `rss.xml` | `<pubDate>` | 不发 |
+
+`src/entry-server.tsx` 导出的 posts 清单**直接不带日期字段**了 —— 让这件事structural,
+而不是一条要靠人记住的规矩:sitemap 与 rss 都从那份清单取数,取不到就漏不出去。
+
+⚠️ **连带代价(已接受)**:`scripts/indexnow.mjs` 原来靠 `/blog/*` 的 `<lastmod>` 漂移
+识别「这篇改过」并重新 ping。现在所有 URL 的 lastmod 都是构建日、每次部署都变,
+那条分支留着会变成每晚重推整个 blog,所以删掉了 —— 只 ping sitemap 里的新 URL。
+**改动已发布文章不再自动 ping,需要时手动推。** 这次重写的 3 篇已发布页就属于这种。
+
+站点 spec(`specs/vivu-p0-spec.md`)已同步:§2.6c 新增、§2.7 的 Article 行与 §7 验收
+清单都改了。press rail 的第三方日期不受影响 —— 那是 geekwire 自己页面上的公开日期,
+说明不了 Vivu 的发布节奏。
+
+## 三、fact boundary 放宽:能力描述全放开,只锁死数字类(Shawn 2026-08-13 拍板)
+
+第一节改稿时连撞两次同一堵墙,两次都是**防住了真话**:
+
+| 想写的 | 真假 | 当时为什么没写 | 退成了什么 |
+|---|---|---|---|
+| 接上存储后新素材自动进入可检索集合 | 真 | facts.json 没登记 | 「keeping that running is the product's problem」—— 读者读不出这是什么意思 |
+| 素材不用上传/搬迁,留在原存储 | 真 | facts.json 没登记 | 「文件名与目录结构不变」—— 回答不了「老 NAS 要不要动」 |
+
+原口径(2026-08-05 立)把「说错」和「没登记」当成了同一件事。那条线在当时是对的:
+站点事实层刚单点化,宁可写得少也不能让 CI 去守护假话。但代价现在看得很清楚 ——
+**产线在如实描述产品这件事上,被自己的登记进度卡住。**
+
+### 新口径
+
+- **能力类描述全放开**:产品能做什么、怎么接入、边界在哪,按真实口径写,
+  不必逐条先落进 facts.json。判据从「有没有登记」换成「**是不是真的**」。
+  拿不准是否属实就别写,但「我没在 facts.json 里看到」不再是理由。
+- **四类锁死**,只能来自 facts.json,那里是 null 就一个字都不写:
+  定价 / benchmark 数字 / 具名客户与客户结果 / 具名第三方集成。
+  共同点是**错了读者靠常识发现不了,而且直接影响商业判断** —— 编得最狠、
+  代价最大的从来是数字。这四类一个字没松。
+- facts.json 因此从**上限**降为**基准与参考**:它仍是站点与 AEO 页的对齐点,
+  仍是 aeo-lint 校验 anchor_terms 的唯一集合,但不再是能力描述的天花板。
+
+落点:`config/j1.yaml` 新增 `facts_policy`(capability_claims + locked 两组,
+业务值全在配置里);`scripts/j1_runner.py` 新增 `facts_policy_block()`,
+紧跟事实清单之后、negatives 之前 —— 中间隔开执行体会继续把清单当天花板读。
+事实清单那一节的标题从「唯一可用的事实集合,一个字都不许超出」改成「基准与参考」。
+配置缺 `facts_policy` 时退回原口径,老配置照跑。
+
+### facts.json 侧的两处改动
+
+新增两条已确认 claim:`auto_index_new_material`、`no_upload_or_migration`,
+source 写的是这次拍板本身。为此 `_meta.hard_rule` 也放宽了一句:**source 从此
+可以是一条真人拍板**(写清谁、哪天、为什么),此前只认「指向仓库里已存在的文件与行」。
+`_meta` 里另加了 `boundary_2026_08_13` 记录新边界全文。aeo-lint 无需改动 ——
+它只校验 facts.json 自洽与 frontmatter 的 anchor_terms,**从不扫正文里的主张**。
+
+### ⚠️ 代价,写在明处
+
+站点文案(`llms.txt`、`/platform`、`marketing.ts`)还没有这两条。也就是说
+**AEO 页现在可能比产品页说得多**,而两边漂移没有任何自动闸门,只能靠人看。
+两条新 claim 各带了一条 `_note` 提醒这件事。发现漂移时正确动作是把新口径
+**补回站点文案**,不是把文章改弱。
+
+### 两篇已改回更强的写法
+
+- `how-to-find-an-old-brand-video` —— 直接打死「自建索引死在第二年」:
+  连一次存储,之后落进去的东西自己进可检索集合,没人维护 pipeline;什么都不用挪,
+  乱了多年的目录可以继续乱着。
+- `ai-video-online` —— 「前三类都从上传开始;Vivu 就地索引,老 NAS 不用整理、
+  不用归拢、不用拷贝。」
+
+顺带在同一轮里收了一处**反向**越界:`search-video-by-spoken-words` 原句
+「the difference between paying once and paying every search」蹭到了定价结构,
+改成处理次数的说法(worked through one time rather than again on every search)。
+放宽能力描述不等于放宽数字类,这句正好是那条线的样本。
+
+## 四、去掉固定结尾 CTA(Shawn 2026-08-13 拍板)
+
+`article.demo_cta`(「Vivu's demo is 30 minutes, on your footage.」)是**强制**结尾,
+八篇一字不差。它和「Where Vivu fits」是同一个病的两个器官:一个把产品事实清单贴在
+文末,一个把同一句 CTA 贴在更后面。读者读到倒数第二段就知道后面是广告。
+
+换成 `article.ending`:收在这一篇自己的判断上,**并且明写不许自己发明等价 CTA**
+(Try it on your own footage / Book a demo 之类)。只删不补的话,执行体会换个说法接着犯。
+`claims.demo_length` 仍是 facts.json 已确认事实,该说时照说,只是不再每篇必须出现。
+
+八篇的新结尾:五篇原来的「什么时候你不需要」那段本身就是好收尾,直接删掉最后一段;
+三篇补了真正的判断句(如 video-editing-made-easy:「Which half is eating your hours
+is not a question anyone can answer from a comparison page.」)。
+
+## 五、把两条新 claim 补回站点文案(第三节那笔代价的还款)
+
+第三节留了一笔明账:AEO 页比产品页说得多,漂移没有闸门。当天还掉:
+
+- `public/llms.txt` 加三条(就地索引不搬迁 / 新素材自动索引 / 不剪辑不生成),
+  Last updated 改 2026-08-13。
+- `src/pages/Platform.tsx` 加 claim 05「Nothing moves. / The library indexes itself
+  where it already lives.」,配套 `PlatformGlyphKind` 加 `'stay'` 与它的字形和动画。
+- `facts.json` 两条新 claim 的 source 从「一条拍板」改成指向上面两个站点文件。
+
+口径:放宽 source 允许拍板,是为了让真话能**立刻**写出去,不是为了让它永远停在拍板上。
+
+## 六、签发全部 5 篇 + 一个把降级证据页全部堵死的 bug
+
+Shawn 2026-08-13:「签发其他所有草稿,我已经批准」。4 行草稿翻「已签发」,
+`ledger_signoff_date.py` 回填 2026-08-13(第 5 行 ai video editing studio 此前已签发、
+日期为空,同轮补上)。8 行台账页面全部追加了 `2026-08-13｜修订版｜<标题>` 镜像
+(append-only,不删旧块——这一轮的意义就是留下改稿前后的对照)。三行已发布的旧行
+此前**从来没有过正文镜像**,这次一并补上。
+
+### ⚠️ j1_publish.py 的 EVIDENCE_RE 少认两种编号
+
+发 `ai-video-online` 时拒稿:「草稿头部注释里没抓到证据编号」。读起来像草稿坏了,
+其实是这条正则只认 `WL-`/`SIG-`,不认 `PRB-`/`KW-`。
+
+PRB/KW 是 2026-08-12 放宽生产条件时加的降级证据源,当天 `j1_runner.py`、
+`j1_evidence.py`、`config/j1.yaml` 都认了,站点侧 `aeo-lint.mjs` 也在同一轮补上
+(vivu_web 60dccdd),**唯独 j1_publish.py 漏了**。后果不是少发一篇,是
+**任何只有降级证据的页都发不出去**,且报错指向草稿本身,查起来会先怀疑内容。
+`ai-video-online`(证据全是 PRB-/KW-)是第一篇真的撞上的。
+
+四种编号的强度口径现在有三处实现:`j1_evidence.py`、`aeo-lint.mjs`、
+`j1_publish.py`。**三处必须一致**,这已经是同一个口径第二次漏同步了。
+
+### 五篇的 segment 与锚点词(我定的,不是拍板,请过目)
+
+| 面向 | segment | anchor_terms |
+|---|---|---|
+| ai video editing studio | B 创作者媒体与教育 | queryable video library / video context layer |
+| video editing made easy | B | AI video search / queryable video library |
+| ai assistant video editor | B | AI video search / video intelligence layer |
+| ai video online | A 品牌侧 B2B 营销 | AI video search / queryable video library |
+| ai powered video editor | B | AI video search / video intelligence layer |
+
+⚠️ 五篇里四篇落 B。这不是分配失手,是**选题本身的偏斜**:08-12/08-13 这批 query
+(ai assistant video editor / ai powered video editor / video editing made easy /
+ai video editing studio)全是剪辑者视角的检索词,天然打 B。值得在 J0 那边看一眼
+队列是不是整体偏到一个 segment 上了。
+
+meta description 五篇都是**真人给定**的,没用机器摘的首段——机器版会在句子中间截断
+(ai-assistant 那条断在逗号上),而它会原样出现在搜索结果里。

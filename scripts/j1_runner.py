@@ -341,8 +341,13 @@ def keyword_candidates(queries, cfg):
 def confirmed_facts(cfg):
     """facts.json 里 status=已确认 的字段 → prompt 用的事实清单。
 
-    只认「已确认」。待真人补的字段视同不存在——facts.json 的 hard_rule
-    是台账 lint 的基准,产线引用了未确认字段等于让 lint 去守护假话。
+    只认「已确认」。待真人补的字段视同不存在——那些字段的值是 null,
+    facts.json 自己的 lint 也保证它们没有值,拿不出东西可写。
+
+    ⚠️ 2026-08-13 起这份清单是**基准与参考**,不再是能力描述的天花板
+    (Shawn 拍板,见 config/j1.yaml facts_policy)。它仍然是站点与 AEO 页的
+    对齐点,而 negatives 那几条是真正的硬边界:数字类只能来自这里,
+    这里是 null 就一个字都不写。
     """
     with open(os.path.expanduser(cfg["facts_file"]), encoding="utf-8") as fh:
         facts = json.load(fh)
@@ -376,6 +381,68 @@ def confirmed_facts(cfg):
     return lines, negatives
 
 
+def facts_policy_block(cfg):
+    """fact boundary → prompt 的一节。
+
+    出处:config/j1.yaml facts_policy(Shawn 2026-08-13 拍板「能力描述全放开,
+    只锁死数字类」)。上面那份 facts.json 清单是参考,**这一节才是边界**,
+    所以它必须紧跟在清单后面、在 negatives 之前——中间隔开会让执行体
+    继续把清单当天花板读。
+
+    配置缺这一节时返回空:老配置退回原口径(清单即上限),不因为加了个字段就崩。
+    """
+    fp = cfg.get("facts_policy")
+    if not fp:
+        return []
+    lines = [
+        "### 这份清单是参考,不是天花板",
+        "",
+        "**能力类描述**(产品能做什么、怎么接入、边界在哪):",
+        "",
+    ]
+    lines += ["- {}".format(r) for r in fp.get("capability_claims", [])]
+    lines += [
+        "",
+        "**下面这几类锁死**,只能来自上面的清单;上面是空的就一个字都不写。"
+        "它们的共同点是:错了读者靠常识发现不了,而且直接影响商业判断。",
+        "",
+    ]
+    lines += ["- 🔒 {}".format(r) for r in fp.get("locked", [])]
+    lines += [""]
+    return lines
+
+
+def vivu_mention_block(art):
+    """Vivu 在正文里怎么出现 → prompt 的一节。
+
+    出处:config/j1.yaml article.vivu_mention（Shawn 2026-08-13 拍板）。
+    业务值全在配置里,这里只负责把它讲成一条执行体读得懂的规则,
+    并把「为什么」一起递过去——只给禁令不给理由,执行体会换个标题接着犯。
+
+    配置缺这一节时返回空:老配置照跑,不因为加了个字段就崩。
+    """
+    vm = art.get("vivu_mention")
+    if not vm:
+        return []
+    return [
+        "## Vivu 怎么出现在正文里(这一节和事实边界同等重要)",
+        "",
+        "这条产线已经发出去的每一篇,都长出了一段独立的 Vivu 小节,"
+        "内容是同一份产品事实清单——标题换了四个写法,清单一字不改,连顺序都一样。"
+        "那不是文章的一部分,是贴在文章上的产品说明书:读者一眼认出是广告就跳过,"
+        "answer engine 也拿不到任何这一篇独有的东西。",
+        "",
+        "所以这一篇里,Vivu **最多出现 {} 句**(结尾那句固定 CTA 不计入),"
+        "并且:".format(vm["max_sentences"]),
+        "",
+    ] + ["- {}".format(r) for r in vm.get("rules", [])] + [
+        "",
+        "> 自检:把这几句单独抄出来,问一句「换成上一篇的题目,它还成立吗?」"
+        "成立就说明它写的是 Vivu 而不是这一篇的问题,重写。",
+        "",
+    ]
+
+
 def build_prompt(items, candidates, cfg, skill_report,
                  probe_cands=None, kw_cands=None):
     fact_lines, negatives = confirmed_facts(cfg)
@@ -404,13 +471,18 @@ def build_prompt(items, candidates, cfg, skill_report,
             "",
         ]
     lines += [
-        "## 产品事实(唯一可用的事实集合,一个字都不许超出)",
+        "## 产品事实(基准与参考)",
         "",
         "以下来自站点事实层 facts.json,只含已确认字段:",
+        "",
+        "⚠️ 这是**参考,不是清单**。它划定站点现在的对外口径,"
+        "不表示「这些话你都要说」。把它整份倒进文章是这条产线出过的原病"
+        "(见下面「Vivu 怎么出现在正文里」)。",
         "",
     ]
     lines += fact_lines
     lines += [""]
+    lines += facts_policy_block(cfg)
     for n in negatives:
         lines.append("- ⛔ {}".format(n))
     lines += [
@@ -510,11 +582,16 @@ def build_prompt(items, candidates, cfg, skill_report,
         "- 语言:{}。长度 {} 词。".format(art["language"], art["word_range"]),
         "- H1 即回答:标题直接承接 query 的问法。",
         "- 第一段给出直接答案(answer-engine 会截取它),然后再展开。",
-        "- 诚实展开所有路线,包括不用 Vivu 的路线(手动、DIY、别的工具形态)。",
+        "- 诚实展开所有路线(手动、DIY、别的工具形态,以及检索层这一类)。"
+        "路线是**品类**,不是产品:每条都讲清形态、代价和边界,"
+        "包括读者最后不用 Vivu 的那几条。",
         "- 自然的位置放一段「什么情况下你其实不需要这类工具」。",
-        "- 结尾 CTA 固定用这句事实:{}".format(art["demo_cta"]),
+        "- 结尾:{}".format(art["ending"]),
         "- 标题 sentence case;不用 emoji;少用 em dash。",
         "",
+    ]
+    lines += vivu_mention_block(art)
+    lines += [
         "## 输出格式(严格遵守,assemble 按此解析)",
         "",
         "每篇文章一个包,包之间不要任何其他文字:",
