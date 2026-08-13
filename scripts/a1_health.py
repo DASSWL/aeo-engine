@@ -30,7 +30,7 @@ import os
 import re
 import sys
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -79,14 +79,43 @@ def probe_health(probe_rows, tz, window, expected_per_day):
     in_window_days = sorted(d for d in by_date
                             if ac.in_window(
                                 datetime.fromisoformat(d).replace(tzinfo=tz), window))
+
+    # 窗口内应该有数据、实际一行都没有的日子。
+    # 2026-08-12 新增：原来只要窗口内任意一天有数据就判「窗口内有数据」，
+    # 于是 7 天里跑成 2 天与跑成 7 天在这份报告里长得一模一样。
+    # 08-11 的探测就是这么消失的——没有停机报告、没有日志行、什么都没有，
+    # 而当周 a1_health 仍会说「窗口内有数据」。缺席必须点名，否则它等于没被发现。
+    # 只判**整天都落在窗口内**的日子。窗口首日通常是半天（start 带时刻），
+    # 而探测在 01:00 跑——那一场多半在窗口开始之前，算它缺席是误报。
+    missing_days = []
+    today = datetime.now(tz).strftime("%Y-%m-%d")
+    cur = window["start"].replace(hour=0, minute=0, second=0, microsecond=0)
+    if window["start"].time() != cur.time():
+        cur += timedelta(days=1)          # 首日不完整，从下一个整天起算
+    while cur + timedelta(days=1) <= window["end"]:
+        key = cur.strftime("%Y-%m-%d")
+        # 今天不算缺席：探测 01:00 跑，本报告可能跑在它之前。
+        if key < today and key not in by_date:
+            missing_days.append(key)
+        cur += timedelta(days=1)
+
+    if not probe_rows:
+        verdict = "从未写入过任何探测记录"
+    elif missing_days:
+        verdict = "⚠️ 窗口内有 {} 天零记录：{}（连停机报告都没有的日子要单独查调度，不是自检拦的）".format(
+            len(missing_days), "、".join(missing_days))
+    elif in_window_days:
+        verdict = "窗口内每天都有数据"
+    else:
+        verdict = "有历史数据但本窗口内没有"
+
     return {
         "expected_per_day": expected_per_day,
         "total_rows": len(probe_rows),
         "days_with_data_in_window": len(in_window_days),
         "by_date_in_window": {d: by_date[d] for d in in_window_days},
-        "verdict": ("从未写入过任何探测记录" if not probe_rows
-                    else "窗口内有数据" if in_window_days
-                    else "有历史数据但本窗口内没有"),
+        "missing_days_in_window": missing_days,
+        "verdict": verdict,
     }
 
 
@@ -157,6 +186,8 @@ def render(result):
           "- 预期每日 {} 条".format(ph["expected_per_day"]),
           "- 探测记录库总行数：**{}**".format(ph["total_rows"]),
           "- 本窗口有数据的天数：{}".format(ph["days_with_data_in_window"]),
+          "- 本窗口零记录的整天：{}".format(
+              "、".join(ph["missing_days_in_window"]) or "无"),
           "- 判定：**{}**".format(ph["verdict"]), ""]
 
     L += ["**③ 信号命中率分母（修正 vs metrics.py 现口径）**", "",
