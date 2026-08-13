@@ -63,7 +63,11 @@ fi
 
 # 3) headless Claude Code 写正文。真 skill 已暂存在 .claude/skills/。
 # --add-dir 与 stdin 的两个坑同 run_draft_runner.sh(见其 62-80 行注释)。
-CLAUDE_TIMEOUT_SECONDS=900
+# 2026-08-12 由 900 提到 1800:max_per_run 从 2 提到 3,一次 claude 调用要写
+# 3 篇 × 600-900 词 ≈ 2700 词,还要先读 ai-writing-guideline 指向的实时规则文件。
+# 900s 在 2 篇时没量过上限,3 篇更没有——超时会强杀并丢弃全部产出(下面 rm),
+# 把三篇一起赔掉。宁可等,不要赔。
+CLAUDE_TIMEOUT_SECONDS=1800
 ADD_DIR_ARGS=()
 while IFS= read -r d; do
     [ -n "$d" ] && ADD_DIR_ARGS+=(--add-dir "$d")
@@ -125,4 +129,12 @@ done
 
 # 被拒通知(assemble 产,有被拒才有)。一篇都没成稿时,这就是本轮唯一的实质消息——
 # 08-12 那轮两条全被拒、群里一个字都没有,就是因为上面那个循环找不到文件。
-[ -s "outbox/j1_refused_${STAMP}.md" ] && echo "PUSH: $(pwd)/outbox/j1_refused_${STAMP}.md"
+#
+# ⚠️ 必须显式 exit 0:`[ -s 文件 ] && echo` 在文件不存在时整条返回 1,
+# 而它是脚本最后一条命令,于是一轮完全成功的运行会以退出码 1 收尾
+# (2026-08-12 实测踩到:3 篇全部成稿、台账回读全 True,RC 仍是 1)。
+# 执行体按退出码判成败,这会把成功报成失败。
+if [ -s "outbox/j1_refused_${STAMP}.md" ]; then
+    echo "PUSH: $(pwd)/outbox/j1_refused_${STAMP}.md"
+fi
+exit 0
