@@ -102,7 +102,12 @@ def probe_health(probe_rows, tz, window, expected_per_day):
     if not probe_rows:
         verdict = "从未写入过任何探测记录"
     elif missing_days:
-        verdict = "⚠️ 窗口内有 {} 天零记录：{}（连停机报告都没有的日子要单独查调度，不是自检拦的）".format(
+        # 成因分三种，本脚本只能报「零记录」，报不了为什么——credit 是桌面端
+        # 订阅额度，仓库侧看不到。所以文案给的是排查顺序，不是结论：
+        # 2026-08-11 那天就是 credit 用完，当时被记成了调度漏跑。
+        verdict = ("⚠️ 窗口内有 {} 天零记录：{}。"
+                   "有停机报告的看报告；没有报告的**先确认当周 credit 有没有用完**，"
+                   "再查调度——这两种在仓库里长得一模一样").format(
             len(missing_days), "、".join(missing_days))
     elif in_window_days:
         verdict = "窗口内每天都有数据"
