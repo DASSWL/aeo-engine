@@ -392,6 +392,12 @@ def main():
             if key:
                 existing[key] = r
 
+        # API 路径不碰 data/kw/，csv_dir 保持 None——下方 emit 照实写 null。
+        # 2026-08-12 修：原来 csv_dir 只在 else 分支赋值，emit 无条件引用它，
+        # API 路径跑到最后一步 UnboundLocalError。这个坑之前被 403 挡在前面看不见
+        # （Basic 审批下来、API 真回数据之后才暴露），一崩就是「数据拿回来了但一条没落地」。
+        csv_dir = None
+
         if args.source == "api":
             missing = [k for k in GOOGLE_ADS_KEYS if not env.get(k)]
             if missing:
@@ -519,7 +525,9 @@ def main():
             "status": "ok",
             "wrote_notion": mode == "commit",
             "source": args.source,
-            "csv_dir": os.path.relpath(csv_dir, ac.REPO),
+            # API 路径下如实写 null，不填一个其实没被读过的目录路径——
+            # 那会让日志说谎（看上去像是从 data/kw/ 解析出来的）。
+            "csv_dir": os.path.relpath(csv_dir, ac.REPO) if csv_dir else None,
             "files": files_report,
             "counts": {
                 "seeds": len(seeds),
