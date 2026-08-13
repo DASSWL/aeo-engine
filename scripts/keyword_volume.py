@@ -203,6 +203,27 @@ def detect_buckets(values, bucket_cfg):
                       len(nums), sorted(set(nums))))
 
 
+def kp_key(text):
+    """Keyword Planner 侧的宽松去重键：在 sc.norm_query 之上再去尾部标点。
+
+    2026-08-12 修（本次 --commit 亲手踩出来的坑）：sc.norm_query 只做「去首尾空白 +
+    压缩内部空白 + 转小写」，**不去标点**。而 Google Ads 会把关键词规范化后再回给你——
+    问号被吃掉、大写被压平。于是库里存的
+        "How do I find clips from hours of stream footage?"（数据来源=AI 建议）
+    与 API 回的
+        "how do i find clips from hours of stream footage"
+    归一后仍不相等，去重判成「新词」，**新建了一行**。
+    2026-08-12 那次写入因此产生 8 条重复行，全部无量（API 对这些长尾问句本来就没数据），
+    等于给库里塞了 8 条纯噪音，还把同一个问法拆成两条来源不同的行。
+
+    刻意**不改 sc.norm_query**：那个键被七条链和台账「面向」匹配共用，
+    动它等于同时改掉所有链的去重语义与 J1 的台账去重口径，
+    blast radius 远超本次要解决的问题。宽松键只在本文件的库内匹配处用，
+    且只用作 exact 未命中时的兜底——不会让两个真正不同的词合并。
+    """
+    return sc.norm_query(text).rstrip("?!.,;:").strip()
+
+
 def parse_csv_dir(csv_dir, bucket_cfg):
     """解析目录下所有 CSV/TSV。返回 (rows, files_report)。"""
     paths = sorted(glob.glob(os.path.join(csv_dir, "*.csv")) +
@@ -387,10 +408,13 @@ def main():
         notion = ac.Notion(env["NOTION_TOKEN"], env["NOTION_VERSION"])
         existing_rows = notion.query_all(env["DS_QUERY"])
         existing = {}
+        existing_loose = {}
         for r in existing_rows:
-            key = sc.norm_query(ac.title_text(r.get("properties", {}), "query 文本"))
+            text = ac.title_text(r.get("properties", {}), "query 文本")
+            key = sc.norm_query(text)
             if key:
                 existing[key] = r
+                existing_loose.setdefault(kp_key(text), r)
 
         # API 路径不碰 data/kw/，csv_dir 保持 None——下方 emit 照实写 null。
         # 2026-08-12 修：原来 csv_dir 只在 else 分支赋值，emit 无条件引用它，
@@ -438,6 +462,11 @@ def main():
         to_create, to_update, skipped = [], [], []
         for row in parsed:
             key = sc.norm_query(row["query 文本"])
+            # exact 优先，宽松键兜底（见 kp_key 的注释：KP 会把 ? 与大写吃掉）。
+            # 命中宽松键时，**以库里那一行为准**——它是真人/上游链写的原始问法，
+            # KP 规范化过的写法不该反过来盖掉它。
+            hit = existing.get(key) or existing_loose.get(kp_key(row["query 文本"]))
+            matched_loose = key not in existing and hit is not None
             seed = seed_index.get(key)
             typ = seed["类型"] if seed else classify_type(row["query 文本"], scan_cfg)
             item = {
@@ -454,11 +483,17 @@ def main():
                 "provenance": seed["provenance"] if seed else
                               "Keyword Planner 导出（非种子词，由 KP 扩展建议带出）【推演待校准】",
             }
-            if key in existing:
-                item["existing_page_id"] = existing[key]["id"]
+            if hit is not None:
+                item["existing_page_id"] = hit["id"]
                 # 已有行的来源标注要留着，不能被本脚本盖掉。见下方 commit 分支的注释。
                 item["existing_数据来源"] = ac.select_name(
-                    existing[key].get("properties", {}), "数据来源")
+                    hit.get("properties", {}), "数据来源")
+                if matched_loose:
+                    # 宽松键命中要留痕：它是一次「差标点/大小写」的判定，
+                    # 不像 exact 那样无可争议，日志里要能看出是哪一行被认成了同一个词。
+                    item["matched_loose"] = True
+                    item["matched_existing_文本"] = ac.title_text(
+                        hit.get("properties", {}), "query 文本")
                 # 本次带回了新信息吗？精确值算，区间也算——
                 # 区间是「量级已知、精度未知」，比什么都没有强，
                 # 它有自己的列（`搜索量区间`，Phase 0 字段表 2026-08-05 解冻加的），
