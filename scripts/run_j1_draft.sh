@@ -46,11 +46,18 @@ if ! python3 scripts/j1_runner.py --emit-prompt "$PROMPT_FILE" \
     exit 1
 fi
 
+# 过滤报告:plan 每轮固定产一份,无论选不选得出选题,一律推。
+# Shawn 2026-08-12:「以后遇到被闸门限制住的,都给我发一个消息让我知道
+# 什么东西被过滤掉了」。放在 PLANNED 判断**之前**——队列为空恰恰是最该看的那次,
+# 而队列为空正是原来那条直接 exit 0 的静默路径。
+FILTERED="outbox/j1_filtered_${STAMP}.md"
+[ -s "$FILTERED" ] && echo "PUSH: $(pwd)/${FILTERED}"
+
 PLANNED=$(grep -o 'DRAFTS_PLANNED: [0-9]*' "logs/j1_plan_${STAMP}.err" | tail -1 | awk '{print $2}')
 PLANNED=${PLANNED:-0}
 if [ "$PLANNED" -eq 0 ]; then
-    # 选题队列为空是正常状态(该类型 query 都已有台账行)。无内容不打扰。
-    echo "NO_DRAFTS:选题队列为空,不写 outbox,不推送。" >&2
+    # 选题队列为空:不再静默。过滤报告上面已经推了,它会说清是被哪道闸挡光的。
+    echo "NO_DRAFTS:选题队列为空(过滤报告已推)。" >&2
     exit 0
 fi
 
@@ -115,3 +122,7 @@ for f in outbox/j1_notify_${STAMP}_*.md; do
     [ -e "$f" ] || continue
     echo "PUSH: $(pwd)/$f"
 done
+
+# 被拒通知(assemble 产,有被拒才有)。一篇都没成稿时,这就是本轮唯一的实质消息——
+# 08-12 那轮两条全被拒、群里一个字都没有,就是因为上面那个循环找不到文件。
+[ -s "outbox/j1_refused_${STAMP}.md" ] && echo "PUSH: $(pwd)/outbox/j1_refused_${STAMP}.md"

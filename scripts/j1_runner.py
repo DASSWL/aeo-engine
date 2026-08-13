@@ -47,13 +47,68 @@ def slugify(text):
     return s[:48] or "untitled"
 
 
-def pick_queries(queries, ledger, cfg):
-    """选题队列。返回 (选中, 逐条落选原因)。
+REFUSED_FILE = os.path.join(ac.REPO, "data", "j1_refused.jsonl")
+
+
+def load_refused():
+    """读被闸门拒过的选题 → {归一 query: 最后一次拒绝记录}。
+
+    2026-08-12 新增。此前 REFUSE 只写进 logs/j1_assemble_*.json 的 failed 字段,
+    而 pick_queries 只按台账行去重、REFUSE 不产生台账行——于是被拒的选题
+    下一轮还会被选中,永远。08-12 那两条本来会每个周三原样再来一遍,
+    每次烧一次 opus 调用,产出恒为 0。
+
+    刻意落本机 jsonl 而不是 Notion:台账只放真资产,被拒的不是资产。
+    单行 JSON 是为了人可读——真人想复活某条,删掉那一行就行。
+    """
+    out = {}
+    if not os.path.exists(REFUSED_FILE):
+        return out
+    with open(REFUSED_FILE, encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+            except ValueError:
+                continue        # 手改坏的行不该让整条产线停摆,跳过即可
+            key = sc.norm_query(rec.get("query") or "")
+            if key:
+                out[key] = rec
+    return out
+
+
+def append_refused(records):
+    """把本轮被拒的选题追加进 REFUSED_FILE。已在文件里的不重复追加。"""
+    if not records:
+        return []
+    known = load_refused()
+    fresh = [r for r in records if sc.norm_query(r["query"]) not in known]
+    if not fresh:
+        return []
+    os.makedirs(os.path.dirname(REFUSED_FILE), exist_ok=True)
+    with open(REFUSED_FILE, "a", encoding="utf-8") as fh:
+        for r in fresh:
+            fh.write(json.dumps(r, ensure_ascii=False) + "\n")
+    return fresh
+
+
+def pick_queries(queries, ledger, cfg, refused=None):
+    """选题队列。返回 (选中, 逐条落选原因, 完整排序队列)。
 
     排除已有台账行的 query(按 sc.norm_query 归一后比对台账「面向」)——
     重复登记同一选题会让签发队列出现两行指同一篇。
+
+    2026-08-12 两处改动(Shawn 拍板「被闸门限制住的都要让我知道」):
+    ① 每一次落选都留名。原来「类型不在范围」与「数据来源不在白名单」两条是
+       静默 continue(注释写的是「连落选都不算,不噪音」)。代价是库里绝大多数行
+       被过滤掉却不留任何痕迹——当前 116 行里有 93 行是这么消失的,
+       其中光 Keyword Planner 的痛点级就有 32 条。看不见的过滤没法审。
+    ② 排除 REFUSED_FILE 里的选题,见 load_refused()。
     """
     q = cfg["queue"]
+    refused = load_refused() if refused is None else refused
     ledger_facing = {sc.norm_query(ac.rich_text(r.get("properties", {}), "面向"))
                      for r in ledger}
 
@@ -62,16 +117,32 @@ def pick_queries(queries, ledger, cfg):
         p = row.get("properties", {})
         text = ac.title_text(p, "query 文本")
         qtype = ac.select_name(p, "类型")
+        source = ac.select_name(p, "数据来源")
         status = ac.select_name(p, "状态")
+        key = sc.norm_query(text)
         if qtype not in q["types_allowed"]:
-            continue  # 类型不在产线范围,连落选都不算,不噪音
-        if ac.select_name(p, "数据来源") not in q["sources_allowed"]:
-            continue  # 补量/占位来源(KP、SERP)不是选题来源,理由见 j1.yaml
-        if status in q["statuses_exclude"]:
-            skipped.append({"query": text, "reason": "状态={}".format(status)})
+            skipped.append({"query": text, "gate": "类型白名单",
+                            "reason": "类型={}(仅收 {})".format(
+                                qtype, "/".join(q["types_allowed"]))})
             continue
-        if sc.norm_query(text) in ledger_facing:
-            skipped.append({"query": text, "reason": "台账已有同选题行"})
+        if source not in q["sources_allowed"]:
+            skipped.append({"query": text, "gate": "来源白名单",
+                            "reason": "数据来源={}(不在白名单)".format(source)})
+            continue
+        if status in q["statuses_exclude"]:
+            skipped.append({"query": text, "gate": "状态黑名单",
+                            "reason": "状态={}".format(status)})
+            continue
+        if key in ledger_facing:
+            skipped.append({"query": text, "gate": "台账去重",
+                            "reason": "台账已有同选题行"})
+            continue
+        if key in refused:
+            r = refused[key]
+            skipped.append({"query": text, "gate": "此前被闸门拒过",
+                            "reason": "{} 被拒:{}".format(
+                                r.get("date", "?"), (r.get("reason") or "")[:160]),
+                            "revive_hint": "要复活它:删掉 data/j1_refused.jsonl 里对应那一行"})
             continue
         picked.append({
             "slug": slugify(text),
@@ -97,7 +168,67 @@ def pick_queries(queries, ledger, cfg):
         else:
             seen[it["slug"]] = 1
 
-    return picked[:q["max_per_run"]], skipped
+    # 完整排序队列一并返回并落盘。2026-08-12 新增:
+    # 此前 plan JSON 只留了 drafts(前 max_per_run 条),整条排序结果不落任何地方——
+    # 「第 3 名到第 23 名长什么样」在仓库里查不到,只能临时跑脚本重算。
+    # 排序口径本身是要审的东西(短头词与长尾问句的量不可比),看不到就审不了。
+    ranked = [{"rank": i, "query": it["query"], "月搜索量": it["月搜索量"],
+               "数据来源": it["数据来源"], "picked": i <= q["max_per_run"]}
+              for i, it in enumerate(picked, 1)]
+
+    return picked[:q["max_per_run"]], skipped, ranked
+
+
+def filtered_report(ranked, skipped, now, cfg):
+    """过滤报告正文。Shawn 2026-08-12 拍板:被闸门挡掉的东西必须能看见。
+
+    每轮固定产一份(队列为空也产)。分两段:
+      ① 完整排序队列——第几名、多少量、来自哪条链、这轮取没取
+      ② 逐条落选,按闸门分组——哪一道闸挡的、为什么
+    合计数必须对得上库里的行数,对不上说明还有一道没留名的闸。
+    """
+    q = cfg["queue"]
+    L = ["# J1 选题过滤报告 · {}".format(now.strftime("%Y-%m-%d")), "",
+         "本轮取前 **{}** 条(`j1.yaml: queue.max_per_run`)。"
+         "候选 {} 条、落选 {} 条。".format(q["max_per_run"], len(ranked), len(skipped)), ""]
+
+    L += ["## 一、排序队列(完整)", ""]
+    if not ranked:
+        L += ["候选队列为空——所有行都被下面的闸挡住了。", ""]
+    else:
+        L += ["| # | 取 | 月搜索量 | 数据来源 | query |", "|--:|:--:|--:|---|---|"]
+        for r in ranked:
+            L.append("| {} | {} | {} | {} | {} |".format(
+                r["rank"], "✅" if r["picked"] else "",
+                r["月搜索量"] if r["月搜索量"] is not None else "—",
+                r["数据来源"], r["query"]))
+        L += ["",
+              "> 排序口径:有量优先、量降序,无量的按原序排在最后"
+              "(`j1_runner.pick_queries`)。",
+              "> ⚠️ 短头词与长尾问句的量不可比——前者是宽泛品类词的总量,"
+              "后者是一个具体问法。同一把尺子排,宽泛词永远在前。", ""]
+
+    L += ["## 二、被闸门挡掉的({} 条)".format(len(skipped)), ""]
+    if not skipped:
+        L += ["无。", ""]
+    else:
+        by_gate = {}
+        for s in skipped:
+            by_gate.setdefault(s.get("gate", "未标注"), []).append(s)
+        for gate in sorted(by_gate, key=lambda g: -len(by_gate[g])):
+            rows = by_gate[gate]
+            L += ["### {} —— {} 条".format(gate, len(rows)), ""]
+            for s in rows:
+                L.append("- `{}` —— {}".format(s["query"], s["reason"]))
+                if s.get("revive_hint"):
+                    L.append("  - {}".format(s["revive_hint"]))
+            L.append("")
+
+    L += ["---", "",
+          "闸门挡掉不等于判错——挡对了也要看得见,否则没人能审这道闸。",
+          "要改哪一道:类型/来源白名单与状态黑名单在 `config/j1.yaml: queue`;",
+          "「此前被闸门拒过」在 `data/j1_refused.jsonl`(删掉对应行即复活)。"]
+    return "\n".join(L) + "\n"
 
 
 def evidence_candidates(pipeline, cfg):
@@ -459,10 +590,49 @@ def main():
                         "ledger_readback_ok":
                             sc.norm_query(w["query"]) in fresh_facing})
 
+            # 被 claude 闸门拒掉的落 data/j1_refused.jsonl,下一轮不再选中。
+            # 只落「claude REFUSE」这一类:它是对**选题本身**的判断,重跑还是同样结果。
+            # 解析失败 / 引用了表外证据 / 台账登记失败都是**本次运行**的事故,
+            # 下次可能就好了——把它们也拉黑等于用一次偶发故障永久废掉一个选题。
+            newly_refused = []
+            if commit:
+                newly_refused = append_refused([
+                    {"date": now.strftime("%Y-%m-%d"), "query": f["query"],
+                     "slug": f["slug"], "gate": "claude REFUSE",
+                     "reason": f["reason"].replace("claude REFUSE:", "", 1)}
+                    for f in failed if f["reason"].startswith("claude REFUSE:")])
+
+            # 被拒通知。plan 时的过滤报告产在 claude 跑之前,装不下 claude 的判断,
+            # 所以这一份单独产。有 failed 就产,没有就不产(不制造空消息)。
+            refused_notify = None
+            if commit and failed:
+                rname = "j1_refused_{}.md".format(now.strftime("%Y-%m-%d"))
+                RL = ["# J1 本轮被拒 · {}".format(now.strftime("%Y-%m-%d")), "",
+                      "计划 {} 篇,成稿 {} 篇,被拒 {} 篇。".format(
+                          len(plan["drafts"]), len(written), len(failed)), ""]
+                for f in failed:
+                    permanent = f["reason"].startswith("claude REFUSE:")
+                    RL += ["## `{}`".format(f["query"]),
+                           "- 判定：{}".format(
+                               "**闸门拒稿**（已出列，下轮不再选中）" if permanent
+                               else "**本次运行事故**（未出列，下轮还会再试）"),
+                           "- 原因：{}".format(f["reason"]), ""]
+                RL += ["---", "",
+                       "闸门拒稿的选题已写进 `data/j1_refused.jsonl`。",
+                       "**判错了要复活它**：删掉该文件里对应那一行即可，下轮自动回到队列。", "",
+                       "> 只有「闸门拒稿」才出列——它是对选题本身的判断，重跑还是同样结果。",
+                       "> 解析失败 / 引用表外证据 / 台账登记失败属于本次运行的事故，",
+                       "> 不出列：用一次偶发故障永久废掉一个选题是不对的。"]
+                ac.write_outbox(rname, "\n".join(RL) + "\n")
+                refused_notify = os.path.join(ac.OUTBOX_DIR, rname)
+
             result = {
                 "script": SCRIPT, "step": "assemble", "mode": sc.resolve_mode(args),
                 "generated_at": now.isoformat(),
                 "written": written, "failed": failed, "readback": readback,
+                "newly_refused": newly_refused,
+                "refused_file": REFUSED_FILE,
+                "refused_notify": refused_notify,
                 "wrote_outbox": commit,
             }
             sc.emit(SCRIPT + "_assemble", result, th)
@@ -475,7 +645,7 @@ def main():
         ledger = notion.query_all(env["DS_LEDGER"])
         pipeline = notion.query_all(env["DS_PIPELINE"])
 
-        picked, skipped = pick_queries(queries, ledger, cfg)
+        picked, skipped, ranked = pick_queries(queries, ledger, cfg)
         if args.limit is not None:
             picked = picked[:args.limit]
         candidates = evidence_candidates(pipeline, cfg)
@@ -486,6 +656,7 @@ def main():
             "row_counts_read": {"query": len(queries), "ledger": len(ledger),
                                 "pipeline": len(pipeline)},
             "drafts": picked, "skipped": skipped,
+            "ranked_queue": ranked,
             "evidence_candidates": candidates,
             "skill_report": skill_report,
         }
@@ -500,6 +671,16 @@ def main():
                 fh.write(prompt)
             result["plan_file"] = plan_path_default
             result["prompt_file"] = args.emit_prompt
+
+            # 过滤报告:每轮固定产一份,选题队列为空也产。
+            # Shawn 2026-08-12:「以后遇到被闸门限制住的,都给我发一个消息
+            # 让我知道什么东西被过滤掉了」。此前这件事完全不可见——
+            # 08-12 那轮两条选题全被拒,群里一个字都没有(见 run_j1_draft.sh 注释)。
+            filt_path = os.path.join(
+                ac.OUTBOX_DIR, "j1_filtered_{}.md".format(now.strftime("%Y-%m-%d")))
+            with open(filt_path, "w", encoding="utf-8") as fh:
+                fh.write(filtered_report(ranked, skipped, now, cfg))
+            result["filtered_file"] = filt_path
 
         print("DRAFTS_PLANNED: {}".format(len(picked)), file=sys.stderr)
         sc.emit(SCRIPT, result, th)
