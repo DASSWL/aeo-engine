@@ -349,9 +349,31 @@ def build_prompt(items, candidates, cfg, skill_report):
         "没有证据的内容只能靠编,而编造正是这条产线的闸门要防的。",
         "",
     ]
+
     for c in candidates:
         lines.append("- {}: {}".format(c["code"], c["quote"]))
+
+    rp = cfg["refusal_policy"]
     lines += [
+        "",
+        "## 什么时候可以 REFUSE(只有这几种,其余一律照写)",
+        "",
+    ]
+    lines += ["- {}".format(r) for r in rp["valid_reasons"]]
+    lines += [
+        "",
+        "**以下都不是拒稿理由**:",
+        "",
+    ]
+    lines += ["- ❌ {}".format(r) for r in rp["not_reasons"]]
+    lines += [
+        "",
+        "> 特别说明 `claims.does_not_edit_or_generate`:它是**你要写进正文的一条事实**,"
+        "不是你不能写这篇的理由。",
+        "> 搜 `ai powered video editor` 的人是真实读者,他要的答案里本来就该包含"
+        "「哪些工具做剪辑、哪些不做、Vivu 负责哪一段」。",
+        "> 诚实说明 Vivu 不剪辑不生成 —— 那是内容,不是障碍。",
+        "> 但正文**仍然不许**说 Vivu 会剪辑或生成:放宽的是写不写,不是能说什么。",
         "",
         "## 文章要求",
         "",
