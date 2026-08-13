@@ -252,8 +252,22 @@ def main():
                                                  args.query or "(未给 query)")),
             "类型": sc.p_select(LEDGER_TYPE[args.type]),
             "面向": sc.p_text(args.query or ""),
+            # relation 的目标库是 **win/loss**（data_source 0f82d896…），
+            # 结构上装不下水箱行，所以这里只能收 WL-。这不是漏写，是 schema 约束。
             "证据编号": sc.p_relation([r["row_id"] for r in resolved
                                        if r["kind"] == "winloss"]),
+            # SIG-（水箱行）走这一列。2026-08-12 Shawn 拍板加列（台账第五次解冻，
+            # rich_text，additive，既有 9 列未动）。
+            #
+            # 为什么非加不可：闸门①在写入时强制「每条对外内容挂证据编号」
+            # （spec 全局硬约束），但挂完之后 **一个字都没存进库**——
+            # 4 行台账的 证据编号 relation 全空、证据链接 从没被写过。
+            # J1 用的证据全是 SIG（win/loss 库至今为空），于是「这篇是拿哪几条
+            # 证据写的」只活在 outbox 草稿的 HTML 注释（不进 git）与已发布页的
+            # frontmatter 里。那条「已下线」的行两样都没有，它的证据**已经查不回来了**。
+            # 闸门守住了写入那一刻，却没守住三个月后回头查的时候。
+            "证据编号(SIG)": sc.p_text(", ".join(
+                r["code"] for r in resolved if r["kind"] == "pipeline")),
             "状态": sc.p_select("草稿"),
             "创建日期": sc.p_date(now.strftime("%Y-%m-%d")),
         }
@@ -261,6 +275,8 @@ def main():
         result["ledger_row_planned"] = {
             "类型": LEDGER_TYPE[args.type], "状态": "草稿",
             "证据编号_relations": len([r for r in resolved if r["kind"] == "winloss"]),
+            "证据编号(SIG)": ", ".join(r["code"] for r in resolved
+                                       if r["kind"] == "pipeline"),
         }
         if sc.resolve_mode(args) == "commit":
             page = notion.create_page(env["DS_LEDGER"], ledger_props)

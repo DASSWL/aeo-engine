@@ -2111,3 +2111,55 @@ playbook §0 加第 6 条自检、§3.2 从「开新对话」改成「开新的*
   以及把探测答案接进 J1 prompt（现在台账内容**完全没有用到 probe 的答案**：
   `j1_runner.py` 从不读探测记录库，`j1.yaml: sources_allowed` 里的「探测问题」
   指的是 Query 库的**数据来源**字段，用的是问题文本不是引擎回答）。
+
+# 2026-08-12（下午）：台账第五次解冻 —— SIG 证据编号入库
+
+## 为什么加这一列（Shawn 拍板）
+
+闸门①在写入时强制「每条对外内容挂证据编号」（spec 全局硬约束），
+**但挂完之后一个字都没存进库**。实测 4 行台账：`证据编号` relation 全空、
+`证据链接` 从来没被写过。
+
+不是漏写，是两处结构约束：
+
+| 字段 | 类型 | 为什么装不下 SIG |
+|---|---|---|
+| `证据编号` | relation → **win/loss 库**（`0f82d896…`） | 目标库不是水箱，结构上装不下水箱行 |
+| `证据链接` | **url** | 单值，装不下编号列表 |
+
+而 J1 用的证据**全是 SIG**（水箱行）——win/loss 库至今为空。
+`j1_evidence.py` 那句 `if r["kind"] == "winloss"` 因此把 SIG 全过滤掉了。
+
+后果：「这篇是拿哪几条证据写的」只活在两个地方——
+outbox 草稿顶部的 HTML 注释（`.gitignore` 排除 `outbox/`，**不进 git**）
+与已发布页的 frontmatter（在 vivu_web git 里，可靠）。
+**闸门守住了写入那一刻，却没守住三个月后回头查的时候。**
+
+## 改了什么
+
+- 台账 additive 加第 10 列 **`证据编号(SIG)`**（rich_text）。
+  独立回读：10 字段、既有 9 列未动、4 行完好。
+- `j1_evidence.py` 登记台账时同时写这一列（逗号分隔）。
+  `证据编号` relation 的行为一字未改，仍只收 WL-，并补了注释说明那是 schema 约束不是漏写。
+
+## 回填结果（3/4）
+
+| 台账行 | 回填 | 出处 |
+|---|---|---|
+| search video by spoken words | `SIG-ed099b98, SIG-3dc7579e` | `logs/j1_assemble_2026-08-06.json` |
+| how to find an old brand video we already made | `SIG-3dc7579e, SIG-ed099b98` | 同上 |
+| how to pull highlights from hours of livestream recordings | `SIG-3dc7579e, SIG-46131a5a` | 已发布页 frontmatter（手写样稿，无产线日志） |
+| how to search a video library by what was said in it（已下线） | **回填不了** | 无任何产物 |
+
+第 4 行是手写样稿，不在任何 assemble 日志里、outbox 无草稿、未发布过。
+**它是拿哪几条证据写的，已经查不回来了。** 如实记在这里，不假装补上。
+
+回填后逐条核对 SIG 能解析回水箱真实行，6 个引用全部 ✅。
+
+## 仍然存在的一条弱点（未修）
+
+**SIG 是算出来的，不是存下来的**：`SIG-xxx = sha1(norm_url(来源链接))[:8]`。
+解析必须扫一遍水箱、逐行重算哈希。**水箱那行的「来源链接」一旦被改，
+映射就静默失效**——不报错，只是从此查不到。
+没有任何地方存着「SIG-3dc7579e 就是这个 row_id」。
+要根治得在台账里同时存 row_id，或给水箱行加一列固化 SIG。本次未做。
