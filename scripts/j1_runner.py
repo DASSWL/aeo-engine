@@ -18,6 +18,7 @@
     python3 scripts/j1_runner.py --assemble logs/out.txt --commit
 """
 
+import hashlib
 import json
 import os
 import re
@@ -48,6 +49,10 @@ def slugify(text):
 
 
 REFUSED_FILE = os.path.join(ac.REPO, "data", "j1_refused.jsonl")
+
+# 闸门分组指纹。2026-08-17 Shawn 拍板:「如果 keyword 短时间内没变过,
+# 就不要每天去验证了」。见 gate_state / filtered_report 的注释。
+GATE_STATE_FILE = os.path.join(ac.REPO, "data", "j1_filter_state.json")
 
 
 def load_refused():
@@ -179,13 +184,43 @@ def pick_queries(queries, ledger, cfg, refused=None):
     return picked[:q["max_per_run"]], skipped, ranked
 
 
-def filtered_report(ranked, skipped, now, cfg):
-    """过滤报告正文。Shawn 2026-08-12 拍板:被闸门挡掉的东西必须能看见。
+def gate_state(path=GATE_STATE_FILE):
+    """读闸门分组指纹。文件不存在/坏了 → 空字典(退回逐条展开,不因缓存崩掉报告)。"""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return {}
+
+
+def gate_fingerprint(rows):
+    """一组落选行 → (指纹, 归一后的 query 列表)。
+
+    指纹只认「哪些 query 被这道闸挡住」,不认顺序、不认 reason 文案:
+    同一批词换了个顺序不该被当成变化,reason 里的白名单串改了排版也不该。
+    """
+    keys = sorted({sc.norm_query(r["query"]) for r in rows})
+    fp = hashlib.sha1("\n".join(keys).encode("utf-8")).hexdigest()[:12]
+    return fp, keys
+
+
+def filtered_report(ranked, skipped, now, cfg, state_path=GATE_STATE_FILE):
+    """过滤报告正文。返回 (正文, 新的闸门指纹状态, 本轮被折叠的闸门名)。
+
+    Shawn 2026-08-12 拍板:被闸门挡掉的东西必须能看见。
 
     每轮固定产一份(队列为空也产)。分两段:
       ① 完整排序队列——第几名、多少量、来自哪条链、这轮取没取
       ② 逐条落选,按闸门分组——哪一道闸挡的、为什么
     合计数必须对得上库里的行数,对不上说明还有一道没留名的闸。
+
+    2026-08-17 Shawn 拍板「keyword 短时间内没变过就不要每天去验证了」:
+    与上一轮**完全相同**的闸门分组折叠成一行,只留档数、起始日期和上次展开的文件名。
+
+    ⚠️ 折叠的是**展示**,不是**判定**:每一条仍然逐条过闸、仍然计入合计数,
+    只是不再把同一份 69 行清单重印一遍。这个区分是刻意的——
+    「不再验证」的字面实现是把 KP 词放进队列,那会拆掉 08-06 立起来的那道闸。
+    真要不验,改 j1.yaml 的 sources_allowed,那是另一个决定。
     """
     q = cfg["queue"]
     L = ["# J1 选题过滤报告 · {}".format(now.strftime("%Y-%m-%d")), "",
@@ -209,26 +244,62 @@ def filtered_report(ranked, skipped, now, cfg):
               "后者是一个具体问法。同一把尺子排,宽泛词永远在前。", ""]
 
     L += ["## 二、被闸门挡掉的({} 条)".format(len(skipped)), ""]
+    today = now.strftime("%Y-%m-%d")
+    this_file = "outbox/j1_filtered_{}.md".format(today)
+    state = gate_state(state_path)
+    new_state, folded = {}, []
     if not skipped:
         L += ["无。", ""]
     else:
         by_gate = {}
-        for s in skipped:
-            by_gate.setdefault(s.get("gate", "未标注"), []).append(s)
+        for row in skipped:
+            by_gate.setdefault(row.get("gate", "未标注"), []).append(row)
         for gate in sorted(by_gate, key=lambda g: -len(by_gate[g])):
             rows = by_gate[gate]
-            L += ["### {} —— {} 条".format(gate, len(rows)), ""]
-            for s in rows:
-                L.append("- `{}` —— {}".format(s["query"], s["reason"]))
-                if s.get("revive_hint"):
-                    L.append("  - {}".format(s["revive_hint"]))
-            L.append("")
+            fp, keys = gate_fingerprint(rows)
+            prev = state.get(gate) or {}
+            unchanged = prev.get("fingerprint") == fp
+            if unchanged:
+                # 折叠。这一档一个字没变,逐条展开等于每天让人重读同一份 69 行清单——
+                # 天天重复的东西没人会读,真正变了的那天也就没人看得见。
+                folded.append(gate)
+                L += ["### {} —— {} 条(自 {} 起每轮完全相同,已折叠)".format(
+                          gate, len(rows), prev.get("since") or "?"), "",
+                      "> 这一档的清单**一个字没变**。全清单见最后一次展开:"
+                      "`{}`。".format(prev.get("listed_in") or "(无记录)"),
+                      "> 变一个词就自动展开,新增的会标 🆕。"
+                      "指纹存在 `data/j1_filter_state.json`,删掉即强制重新展开。", ""]
+                new_state[gate] = prev
+            else:
+                before = set(prev.get("keys") or [])
+                fresh = [r for r in rows if sc.norm_query(r["query"]) not in before]
+                head = "### {} —— {} 条".format(gate, len(rows))
+                if prev:
+                    head += "(上轮 {} 条,新增 {} 条)".format(len(before), len(fresh))
+                L += [head, ""]
+                fresh_keys = {sc.norm_query(r["query"]) for r in fresh}
+                for row in rows:
+                    mark = "🆕 " if sc.norm_query(row["query"]) in fresh_keys else ""
+                    L.append("- {}`{}` —— {}".format(mark, row["query"], row["reason"]))
+                    if row.get("revive_hint"):
+                        L.append("  - {}".format(row["revive_hint"]))
+                L.append("")
+                # since = 本轮日期:这一档从今天起是这个样子。折叠时原样带走,
+                # 于是折叠行里的「自 X 起相同」说的是「上次变化发生在 X」。
+                new_state[gate] = {"fingerprint": fp, "keys": keys,
+                                   "count": len(rows), "since": today,
+                                   "listed_in": this_file}
+
+    if folded:
+        L += ["> 本轮折叠了 {} 档:{}。".format(len(folded), "、".join(folded)),
+              "> 折叠的口径是「与上一轮**完全相同**」,不是抽样也不是超时——"
+              "只要有一条进出就会展开。", ""]
 
     L += ["---", "",
           "闸门挡掉不等于判错——挡对了也要看得见,否则没人能审这道闸。",
           "要改哪一道:类型/来源白名单与状态黑名单在 `config/j1.yaml: queue`;",
           "「此前被闸门拒过」在 `data/j1_refused.jsonl`(删掉对应行即复活)。"]
-    return "\n".join(L) + "\n"
+    return "\n".join(L) + "\n", new_state, folded
 
 
 def evidence_candidates(pipeline, cfg):
@@ -1002,9 +1073,15 @@ def main():
             # 08-12 那轮两条选题全被拒,群里一个字都没有(见 run_j1_draft.sh 注释)。
             filt_path = os.path.join(
                 ac.OUTBOX_DIR, "j1_filtered_{}.md".format(now.strftime("%Y-%m-%d")))
+            body, gstate, folded = filtered_report(ranked, skipped, now, cfg)
             with open(filt_path, "w", encoding="utf-8") as fh:
-                fh.write(filtered_report(ranked, skipped, now, cfg))
+                fh.write(body)
+            # 指纹状态与报告同生共死:报告写成功了才更新指纹,
+            # 否则下一轮会拿一份没人见过的指纹去折叠。
+            with open(GATE_STATE_FILE, "w", encoding="utf-8") as fh:
+                json.dump(gstate, fh, ensure_ascii=False, indent=2)
             result["filtered_file"] = filt_path
+            result["gate_folded"] = folded
 
         print("DRAFTS_PLANNED: {}".format(len(picked)), file=sys.stderr)
         sc.emit(SCRIPT, result, th)
