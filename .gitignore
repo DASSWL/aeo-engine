@@ -5,6 +5,7 @@
 data/
 logs/
 outbox/
+inbox/          # 外部工具投递的原始报告（Reddit 爬取报告等），体积大且含第三方原文
 
 # Python
 .venv/
