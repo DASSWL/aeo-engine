@@ -37,9 +37,23 @@
 ## 一、交付位置与命名
 
 ```
-~/aeo-engine/inbox/reddit/reddit_scan_YYYY-MM-DD.json        # 机器读，必须
-~/aeo-engine/inbox/reddit/reddit_scan_YYYY-MM-DD.md          # 人读，可选
+/Users/shiyuanniu/aeo-engine/inbox/reddit/reddit_scan_YYYY-MM-DD.json    # 机器读，必须
+/Users/shiyuanniu/aeo-engine/inbox/reddit/reddit_scan_YYYY-MM-DD.md      # 人读，可选
 ```
+
+**这个目录是硬约定**，已建好、已随 `data/ logs/ outbox/` 同例进 .gitignore。
+分析侧只认它，不去别处找。爬虫跑在别的机器/容器里就自己 `mkdir -p`，
+或者把这里 symlink 到你的输出目录——两种都行，但**最终路径必须是上面这一条**。
+
+落好之后自检一次（这个脚本是两边共用的合同，不是我单方面的验收）：
+
+```bash
+python3 ~/aeo-engine/scripts/reddit_report_check.py            # 取 inbox 里最新一份
+python3 ~/aeo-engine/scripts/reddit_report_check.py --report <路径>
+# 退出码 0=可用 1=有硬伤不进分析 2=报告不在
+```
+
+可直接照抄的合法样例：`docs/examples/reddit_scan_example.json`（105 组合 + 2 条帖子，体检通过）。
 
 - 日期用 **America/Los_Angeles** 的当天，与仓库其余所有链一致。
 - 同一天跑第二次：`_2`、`_3` 后缀，**不要覆盖**。覆盖会把上一次的证据抹掉。
@@ -181,19 +195,16 @@
 
 ---
 
-## 七、有一件事得你先定：日频 vs 周定额
+## 七、日频爬取，周频入箱（2026-08-17 Shawn 已定）
 
-爬虫改成每天跑，但配额还是周口径：
-`scan.yaml: caps.per_segment_per_round = 10`、`weekly_inbox_quota = 15`。
-日频 × 7 会把周定额撑爆 7 倍。三选一：
+爬虫**每天**跑、每天落一份报告；**入箱仍是每周一次**，配额一个字不动
+（`scan.yaml: caps.per_segment_per_round = 10`、`weekly_inbox_quota = 15`）。
 
-- **A（默认，我不问就按这个走）**：爬虫日跑、报告日落；**入箱仍按周一次**，
-  周六用当周 7 份报告合并判读，配额不动。日报告的额外价值是「帖子出现得更早、
-  删帖前抓得到」，不是「入箱更多」。
-- **B**：入箱也改日频，`per_segment_per_round` 下调到 2（5 段 × 2 × 7 ≈ 70/周，仍超）。
-- **C**：明说要放量，把 `weekly_inbox_quota` 一起抬——那是水箱吞吐的决定，不是扫描的决定。
+周六合并当周 7 份报告做一次判读入箱。日频的价值是**抓得更早、删帖前抓得到**，
+不是入箱更多——水箱是名字箱，撑爆定额只会稀释周定额里真正能触达的行。
 
----
+对爬虫的含义：**每天各写各的文件，不要自己合并、不要跨天去重。**
+合并是分析侧周六的活，你把 7 天的快照原样留着就行。
 
 ## 八、给爬虫作者的检查清单
 

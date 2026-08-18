@@ -2649,3 +2649,30 @@ Shawn 拍板：「我用我其他的工具每天定时去爬 reddit 的内容，
 日频的价值是「抓得更早、删帖前抓得到」，不是「入箱更多」。
 
 落地位置 `inbox/reddit/`（已建、已随 `data/ logs/ outbox/` 同例进 .gitignore）。
+
+## 补：入箱周频已定 + 报告落地位置与体检脚本（同日晚些）
+
+Shawn 拍板「入箱也改成每周一次」→ 规范 §七 由待定改成定案：**日爬日落报告、
+周六合并当周 7 份做一次判读入箱**，`caps.per_segment_per_round=10` 与
+`weekly_inbox_quota=15` 一个字不动。对爬虫的含义是每天各写各的文件，
+不自己合并、不跨天去重。
+
+**落地位置**（硬约定，分析侧只认它）：
+`/Users/shiyuanniu/aeo-engine/inbox/reddit/reddit_scan_YYYY-MM-DD.json`
+
+新增两件东西把「能不能读到」从口头承诺变成可执行的检查：
+
+- `scripts/reddit_report_check.py` —— 报告体检。**两边共用的合同**：爬虫作者拿它当
+  验收条件，分析侧拿它当准入闸。只读文件、不碰网络、不写 Notion。
+  退出码 0/1/2 = 可用/有硬伤/报告不在。核心是**覆盖矩阵检查**：把 `segments.yaml`
+  展开成 105 个期望组合，报告里少一个就拒收——「没扫」被当成「扫了 0 条」正是
+  08-15 断料六天的根因，这个脚本存在的主要理由就是让它不能再发生。
+  另外拦：permalink 未规范化、`found_by` 为空、`state.*` 缺标记、
+  `run.status=ok` 但有 failed 组合、报告里混进凭据。
+- `docs/examples/reddit_scan_example.json` —— 105 组合 + 2 条帖子的合法样例，体检通过。
+  含一条已删帖（`state.deleted=true` 但**保留在报告里**）与一条被两个 segment
+  同时命中的帖（`found_by` 两条，r/editors 挂在 A 和 E 下）。
+
+`docs/reddit_crawler_brief.md` 是给 Shawn 的 coding agent 的启动文档：
+背景与红线、matrix 从 `segments.yaml` 读、Reddit OAuth 接入与字段映射表、
+失败处理、六条自验收清单。

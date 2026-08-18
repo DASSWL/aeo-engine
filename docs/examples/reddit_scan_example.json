@@ -1,0 +1,1052 @@
+{
+ "schema_version": 1,
+ "run": {
+  "started_at": "2026-08-18T03:00:12-07:00",
+  "finished_at": "2026-08-18T03:14:55-07:00",
+  "status": "ok",
+  "tool": "shawn-reddit-crawler/0.1.0",
+  "auth": "reddit-api-oauth",
+  "scope": {
+   "sort": "relevance",
+   "time_filter": "year",
+   "restrict_sr": true
+  },
+  "counts": {
+   "queries_planned": 105,
+   "queries_ok": 105,
+   "queries_failed": 0,
+   "posts": 2,
+   "posts_unique": 2
+  },
+  "errors": []
+ },
+ "queries": [
+  {
+   "segment": "A",
+   "subreddit": "r/marketing",
+   "keyword": "find old footage",
+   "url": "https://oauth.reddit.com/r/marketing/search?q=find%20old%20footage&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "A",
+   "subreddit": "r/marketing",
+   "keyword": "video asset library mess",
+   "url": "https://oauth.reddit.com/r/marketing/search?q=video%20asset%20library%20mess&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "A",
+   "subreddit": "r/marketing",
+   "keyword": "where did we save that clip",
+   "url": "https://oauth.reddit.com/r/marketing/search?q=where%20did%20we%20save%20that%20clip&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "A",
+   "subreddit": "r/marketing",
+   "keyword": "brand video archive",
+   "url": "https://oauth.reddit.com/r/marketing/search?q=brand%20video%20archive&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "A",
+   "subreddit": "r/marketing",
+   "keyword": "content repurposing workflow",
+   "url": "https://oauth.reddit.com/r/marketing/search?q=content%20repurposing%20workflow&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "A",
+   "subreddit": "r/B2BMarketing",
+   "keyword": "find old footage",
+   "url": "https://oauth.reddit.com/r/B2BMarketing/search?q=find%20old%20footage&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "A",
+   "subreddit": "r/B2BMarketing",
+   "keyword": "video asset library mess",
+   "url": "https://oauth.reddit.com/r/B2BMarketing/search?q=video%20asset%20library%20mess&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "A",
+   "subreddit": "r/B2BMarketing",
+   "keyword": "where did we save that clip",
+   "url": "https://oauth.reddit.com/r/B2BMarketing/search?q=where%20did%20we%20save%20that%20clip&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "A",
+   "subreddit": "r/B2BMarketing",
+   "keyword": "brand video archive",
+   "url": "https://oauth.reddit.com/r/B2BMarketing/search?q=brand%20video%20archive&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "A",
+   "subreddit": "r/B2BMarketing",
+   "keyword": "content repurposing workflow",
+   "url": "https://oauth.reddit.com/r/B2BMarketing/search?q=content%20repurposing%20workflow&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "A",
+   "subreddit": "r/videography",
+   "keyword": "find old footage",
+   "url": "https://oauth.reddit.com/r/videography/search?q=find%20old%20footage&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "A",
+   "subreddit": "r/videography",
+   "keyword": "video asset library mess",
+   "url": "https://oauth.reddit.com/r/videography/search?q=video%20asset%20library%20mess&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "A",
+   "subreddit": "r/videography",
+   "keyword": "where did we save that clip",
+   "url": "https://oauth.reddit.com/r/videography/search?q=where%20did%20we%20save%20that%20clip&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "A",
+   "subreddit": "r/videography",
+   "keyword": "brand video archive",
+   "url": "https://oauth.reddit.com/r/videography/search?q=brand%20video%20archive&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "A",
+   "subreddit": "r/videography",
+   "keyword": "content repurposing workflow",
+   "url": "https://oauth.reddit.com/r/videography/search?q=content%20repurposing%20workflow&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "A",
+   "subreddit": "r/editors",
+   "keyword": "find old footage",
+   "url": "https://oauth.reddit.com/r/editors/search?q=find%20old%20footage&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 1,
+   "post_ids": [
+    "1ttm135"
+   ]
+  },
+  {
+   "segment": "A",
+   "subreddit": "r/editors",
+   "keyword": "video asset library mess",
+   "url": "https://oauth.reddit.com/r/editors/search?q=video%20asset%20library%20mess&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "A",
+   "subreddit": "r/editors",
+   "keyword": "where did we save that clip",
+   "url": "https://oauth.reddit.com/r/editors/search?q=where%20did%20we%20save%20that%20clip&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "A",
+   "subreddit": "r/editors",
+   "keyword": "brand video archive",
+   "url": "https://oauth.reddit.com/r/editors/search?q=brand%20video%20archive&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "A",
+   "subreddit": "r/editors",
+   "keyword": "content repurposing workflow",
+   "url": "https://oauth.reddit.com/r/editors/search?q=content%20repurposing%20workflow&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "B",
+   "subreddit": "r/NewTubers",
+   "keyword": "video archive search",
+   "url": "https://oauth.reddit.com/r/NewTubers/search?q=video%20archive%20search&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "B",
+   "subreddit": "r/NewTubers",
+   "keyword": "course video library",
+   "url": "https://oauth.reddit.com/r/NewTubers/search?q=course%20video%20library&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "B",
+   "subreddit": "r/NewTubers",
+   "keyword": "repurpose long form video",
+   "url": "https://oauth.reddit.com/r/NewTubers/search?q=repurpose%20long%20form%20video&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "B",
+   "subreddit": "r/NewTubers",
+   "keyword": "podcast video clips",
+   "url": "https://oauth.reddit.com/r/NewTubers/search?q=podcast%20video%20clips&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "B",
+   "subreddit": "r/NewTubers",
+   "keyword": "searchable transcript",
+   "url": "https://oauth.reddit.com/r/NewTubers/search?q=searchable%20transcript&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "B",
+   "subreddit": "r/youtubers",
+   "keyword": "video archive search",
+   "url": "https://oauth.reddit.com/r/youtubers/search?q=video%20archive%20search&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "B",
+   "subreddit": "r/youtubers",
+   "keyword": "course video library",
+   "url": "https://oauth.reddit.com/r/youtubers/search?q=course%20video%20library&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "B",
+   "subreddit": "r/youtubers",
+   "keyword": "repurpose long form video",
+   "url": "https://oauth.reddit.com/r/youtubers/search?q=repurpose%20long%20form%20video&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "B",
+   "subreddit": "r/youtubers",
+   "keyword": "podcast video clips",
+   "url": "https://oauth.reddit.com/r/youtubers/search?q=podcast%20video%20clips&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "B",
+   "subreddit": "r/youtubers",
+   "keyword": "searchable transcript",
+   "url": "https://oauth.reddit.com/r/youtubers/search?q=searchable%20transcript&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "B",
+   "subreddit": "r/podcasting",
+   "keyword": "video archive search",
+   "url": "https://oauth.reddit.com/r/podcasting/search?q=video%20archive%20search&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "B",
+   "subreddit": "r/podcasting",
+   "keyword": "course video library",
+   "url": "https://oauth.reddit.com/r/podcasting/search?q=course%20video%20library&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "B",
+   "subreddit": "r/podcasting",
+   "keyword": "repurpose long form video",
+   "url": "https://oauth.reddit.com/r/podcasting/search?q=repurpose%20long%20form%20video&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "B",
+   "subreddit": "r/podcasting",
+   "keyword": "podcast video clips",
+   "url": "https://oauth.reddit.com/r/podcasting/search?q=podcast%20video%20clips&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "B",
+   "subreddit": "r/podcasting",
+   "keyword": "searchable transcript",
+   "url": "https://oauth.reddit.com/r/podcasting/search?q=searchable%20transcript&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 1,
+   "post_ids": [
+    "1uepq6o"
+   ]
+  },
+  {
+   "segment": "B",
+   "subreddit": "r/edtech",
+   "keyword": "video archive search",
+   "url": "https://oauth.reddit.com/r/edtech/search?q=video%20archive%20search&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "B",
+   "subreddit": "r/edtech",
+   "keyword": "course video library",
+   "url": "https://oauth.reddit.com/r/edtech/search?q=course%20video%20library&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "B",
+   "subreddit": "r/edtech",
+   "keyword": "repurpose long form video",
+   "url": "https://oauth.reddit.com/r/edtech/search?q=repurpose%20long%20form%20video&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "B",
+   "subreddit": "r/edtech",
+   "keyword": "podcast video clips",
+   "url": "https://oauth.reddit.com/r/edtech/search?q=podcast%20video%20clips&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "B",
+   "subreddit": "r/edtech",
+   "keyword": "searchable transcript",
+   "url": "https://oauth.reddit.com/r/edtech/search?q=searchable%20transcript&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "B",
+   "subreddit": "r/instructionaldesign",
+   "keyword": "video archive search",
+   "url": "https://oauth.reddit.com/r/instructionaldesign/search?q=video%20archive%20search&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "B",
+   "subreddit": "r/instructionaldesign",
+   "keyword": "course video library",
+   "url": "https://oauth.reddit.com/r/instructionaldesign/search?q=course%20video%20library&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "B",
+   "subreddit": "r/instructionaldesign",
+   "keyword": "repurpose long form video",
+   "url": "https://oauth.reddit.com/r/instructionaldesign/search?q=repurpose%20long%20form%20video&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "B",
+   "subreddit": "r/instructionaldesign",
+   "keyword": "podcast video clips",
+   "url": "https://oauth.reddit.com/r/instructionaldesign/search?q=podcast%20video%20clips&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "B",
+   "subreddit": "r/instructionaldesign",
+   "keyword": "searchable transcript",
+   "url": "https://oauth.reddit.com/r/instructionaldesign/search?q=searchable%20transcript&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "C",
+   "subreddit": "r/ecommerce",
+   "keyword": "in-house creative team",
+   "url": "https://oauth.reddit.com/r/ecommerce/search?q=in-house%20creative%20team&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "C",
+   "subreddit": "r/ecommerce",
+   "keyword": "ugc video library",
+   "url": "https://oauth.reddit.com/r/ecommerce/search?q=ugc%20video%20library&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "C",
+   "subreddit": "r/ecommerce",
+   "keyword": "ad creative testing",
+   "url": "https://oauth.reddit.com/r/ecommerce/search?q=ad%20creative%20testing&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "C",
+   "subreddit": "r/ecommerce",
+   "keyword": "creative asset management",
+   "url": "https://oauth.reddit.com/r/ecommerce/search?q=creative%20asset%20management&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "C",
+   "subreddit": "r/ecommerce",
+   "keyword": "product video archive",
+   "url": "https://oauth.reddit.com/r/ecommerce/search?q=product%20video%20archive&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "C",
+   "subreddit": "r/DTC",
+   "keyword": "in-house creative team",
+   "url": "https://oauth.reddit.com/r/DTC/search?q=in-house%20creative%20team&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "C",
+   "subreddit": "r/DTC",
+   "keyword": "ugc video library",
+   "url": "https://oauth.reddit.com/r/DTC/search?q=ugc%20video%20library&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "C",
+   "subreddit": "r/DTC",
+   "keyword": "ad creative testing",
+   "url": "https://oauth.reddit.com/r/DTC/search?q=ad%20creative%20testing&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "C",
+   "subreddit": "r/DTC",
+   "keyword": "creative asset management",
+   "url": "https://oauth.reddit.com/r/DTC/search?q=creative%20asset%20management&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "C",
+   "subreddit": "r/DTC",
+   "keyword": "product video archive",
+   "url": "https://oauth.reddit.com/r/DTC/search?q=product%20video%20archive&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "C",
+   "subreddit": "r/PPC",
+   "keyword": "in-house creative team",
+   "url": "https://oauth.reddit.com/r/PPC/search?q=in-house%20creative%20team&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "C",
+   "subreddit": "r/PPC",
+   "keyword": "ugc video library",
+   "url": "https://oauth.reddit.com/r/PPC/search?q=ugc%20video%20library&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "C",
+   "subreddit": "r/PPC",
+   "keyword": "ad creative testing",
+   "url": "https://oauth.reddit.com/r/PPC/search?q=ad%20creative%20testing&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "C",
+   "subreddit": "r/PPC",
+   "keyword": "creative asset management",
+   "url": "https://oauth.reddit.com/r/PPC/search?q=creative%20asset%20management&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "C",
+   "subreddit": "r/PPC",
+   "keyword": "product video archive",
+   "url": "https://oauth.reddit.com/r/PPC/search?q=product%20video%20archive&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "C",
+   "subreddit": "r/socialmedia",
+   "keyword": "in-house creative team",
+   "url": "https://oauth.reddit.com/r/socialmedia/search?q=in-house%20creative%20team&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "C",
+   "subreddit": "r/socialmedia",
+   "keyword": "ugc video library",
+   "url": "https://oauth.reddit.com/r/socialmedia/search?q=ugc%20video%20library&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "C",
+   "subreddit": "r/socialmedia",
+   "keyword": "ad creative testing",
+   "url": "https://oauth.reddit.com/r/socialmedia/search?q=ad%20creative%20testing&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "C",
+   "subreddit": "r/socialmedia",
+   "keyword": "creative asset management",
+   "url": "https://oauth.reddit.com/r/socialmedia/search?q=creative%20asset%20management&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "C",
+   "subreddit": "r/socialmedia",
+   "keyword": "product video archive",
+   "url": "https://oauth.reddit.com/r/socialmedia/search?q=product%20video%20archive&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "D",
+   "subreddit": "r/ecommerce",
+   "keyword": "live commerce",
+   "url": "https://oauth.reddit.com/r/ecommerce/search?q=live%20commerce&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "D",
+   "subreddit": "r/ecommerce",
+   "keyword": "livestream highlights",
+   "url": "https://oauth.reddit.com/r/ecommerce/search?q=livestream%20highlights&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "D",
+   "subreddit": "r/ecommerce",
+   "keyword": "live shopping clips",
+   "url": "https://oauth.reddit.com/r/ecommerce/search?q=live%20shopping%20clips&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "D",
+   "subreddit": "r/ecommerce",
+   "keyword": "stream vod repurposing",
+   "url": "https://oauth.reddit.com/r/ecommerce/search?q=stream%20vod%20repurposing&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "D",
+   "subreddit": "r/ecommerce",
+   "keyword": "livestream archive",
+   "url": "https://oauth.reddit.com/r/ecommerce/search?q=livestream%20archive&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "D",
+   "subreddit": "r/livestreamfail",
+   "keyword": "live commerce",
+   "url": "https://oauth.reddit.com/r/livestreamfail/search?q=live%20commerce&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "D",
+   "subreddit": "r/livestreamfail",
+   "keyword": "livestream highlights",
+   "url": "https://oauth.reddit.com/r/livestreamfail/search?q=livestream%20highlights&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "D",
+   "subreddit": "r/livestreamfail",
+   "keyword": "live shopping clips",
+   "url": "https://oauth.reddit.com/r/livestreamfail/search?q=live%20shopping%20clips&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "D",
+   "subreddit": "r/livestreamfail",
+   "keyword": "stream vod repurposing",
+   "url": "https://oauth.reddit.com/r/livestreamfail/search?q=stream%20vod%20repurposing&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "D",
+   "subreddit": "r/livestreamfail",
+   "keyword": "livestream archive",
+   "url": "https://oauth.reddit.com/r/livestreamfail/search?q=livestream%20archive&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "D",
+   "subreddit": "r/Twitch",
+   "keyword": "live commerce",
+   "url": "https://oauth.reddit.com/r/Twitch/search?q=live%20commerce&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "D",
+   "subreddit": "r/Twitch",
+   "keyword": "livestream highlights",
+   "url": "https://oauth.reddit.com/r/Twitch/search?q=livestream%20highlights&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "D",
+   "subreddit": "r/Twitch",
+   "keyword": "live shopping clips",
+   "url": "https://oauth.reddit.com/r/Twitch/search?q=live%20shopping%20clips&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "D",
+   "subreddit": "r/Twitch",
+   "keyword": "stream vod repurposing",
+   "url": "https://oauth.reddit.com/r/Twitch/search?q=stream%20vod%20repurposing&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "D",
+   "subreddit": "r/Twitch",
+   "keyword": "livestream archive",
+   "url": "https://oauth.reddit.com/r/Twitch/search?q=livestream%20archive&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "D",
+   "subreddit": "r/socialmedia",
+   "keyword": "live commerce",
+   "url": "https://oauth.reddit.com/r/socialmedia/search?q=live%20commerce&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "D",
+   "subreddit": "r/socialmedia",
+   "keyword": "livestream highlights",
+   "url": "https://oauth.reddit.com/r/socialmedia/search?q=livestream%20highlights&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "D",
+   "subreddit": "r/socialmedia",
+   "keyword": "live shopping clips",
+   "url": "https://oauth.reddit.com/r/socialmedia/search?q=live%20shopping%20clips&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "D",
+   "subreddit": "r/socialmedia",
+   "keyword": "stream vod repurposing",
+   "url": "https://oauth.reddit.com/r/socialmedia/search?q=stream%20vod%20repurposing&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "D",
+   "subreddit": "r/socialmedia",
+   "keyword": "livestream archive",
+   "url": "https://oauth.reddit.com/r/socialmedia/search?q=livestream%20archive&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "E",
+   "subreddit": "r/esports",
+   "keyword": "esports highlights",
+   "url": "https://oauth.reddit.com/r/esports/search?q=esports%20highlights&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "E",
+   "subreddit": "r/esports",
+   "keyword": "vod review workflow",
+   "url": "https://oauth.reddit.com/r/esports/search?q=vod%20review%20workflow&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "E",
+   "subreddit": "r/esports",
+   "keyword": "game capture archive",
+   "url": "https://oauth.reddit.com/r/esports/search?q=game%20capture%20archive&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "E",
+   "subreddit": "r/esports",
+   "keyword": "tournament footage",
+   "url": "https://oauth.reddit.com/r/esports/search?q=tournament%20footage&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "E",
+   "subreddit": "r/esports",
+   "keyword": "clip production pipeline",
+   "url": "https://oauth.reddit.com/r/esports/search?q=clip%20production%20pipeline&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "E",
+   "subreddit": "r/gamedev",
+   "keyword": "esports highlights",
+   "url": "https://oauth.reddit.com/r/gamedev/search?q=esports%20highlights&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "E",
+   "subreddit": "r/gamedev",
+   "keyword": "vod review workflow",
+   "url": "https://oauth.reddit.com/r/gamedev/search?q=vod%20review%20workflow&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "E",
+   "subreddit": "r/gamedev",
+   "keyword": "game capture archive",
+   "url": "https://oauth.reddit.com/r/gamedev/search?q=game%20capture%20archive&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "E",
+   "subreddit": "r/gamedev",
+   "keyword": "tournament footage",
+   "url": "https://oauth.reddit.com/r/gamedev/search?q=tournament%20footage&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "E",
+   "subreddit": "r/gamedev",
+   "keyword": "clip production pipeline",
+   "url": "https://oauth.reddit.com/r/gamedev/search?q=clip%20production%20pipeline&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "E",
+   "subreddit": "r/editors",
+   "keyword": "esports highlights",
+   "url": "https://oauth.reddit.com/r/editors/search?q=esports%20highlights&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "E",
+   "subreddit": "r/editors",
+   "keyword": "vod review workflow",
+   "url": "https://oauth.reddit.com/r/editors/search?q=vod%20review%20workflow&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 1,
+   "post_ids": [
+    "1ttm135"
+   ]
+  },
+  {
+   "segment": "E",
+   "subreddit": "r/editors",
+   "keyword": "game capture archive",
+   "url": "https://oauth.reddit.com/r/editors/search?q=game%20capture%20archive&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "E",
+   "subreddit": "r/editors",
+   "keyword": "tournament footage",
+   "url": "https://oauth.reddit.com/r/editors/search?q=tournament%20footage&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "E",
+   "subreddit": "r/editors",
+   "keyword": "clip production pipeline",
+   "url": "https://oauth.reddit.com/r/editors/search?q=clip%20production%20pipeline&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "E",
+   "subreddit": "r/Twitch",
+   "keyword": "esports highlights",
+   "url": "https://oauth.reddit.com/r/Twitch/search?q=esports%20highlights&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "E",
+   "subreddit": "r/Twitch",
+   "keyword": "vod review workflow",
+   "url": "https://oauth.reddit.com/r/Twitch/search?q=vod%20review%20workflow&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "E",
+   "subreddit": "r/Twitch",
+   "keyword": "game capture archive",
+   "url": "https://oauth.reddit.com/r/Twitch/search?q=game%20capture%20archive&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "E",
+   "subreddit": "r/Twitch",
+   "keyword": "tournament footage",
+   "url": "https://oauth.reddit.com/r/Twitch/search?q=tournament%20footage&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  },
+  {
+   "segment": "E",
+   "subreddit": "r/Twitch",
+   "keyword": "clip production pipeline",
+   "url": "https://oauth.reddit.com/r/Twitch/search?q=clip%20production%20pipeline&restrict_sr=1&sort=relevance&t=year",
+   "status": "ok",
+   "returned": 0,
+   "post_ids": []
+  }
+ ],
+ "posts": [
+  {
+   "id": "1uepq6o",
+   "permalink": "https://www.reddit.com/r/podcasting/comments/1uepq6o/how_to_make_transcripts_more_useful/",
+   "subreddit": "r/podcasting",
+   "found_by": [
+    {
+     "segment": "B",
+     "keyword": "searchable transcript"
+    }
+   ],
+   "title": "How to make transcripts more useful for finding clips?",
+   "selftext": "I run a weekly show and I have ~200 hours of episodes. Every time a sponsor asks for a clip about a topic I end up scrubbing through old files for an hour. I have transcripts but searching them one file at a time is killing me.",
+   "author": "u/example_host",
+   "author_flair": "Podcast editor",
+   "link_flair": "Question",
+   "created_utc": 1782345678,
+   "score": 34,
+   "upvote_ratio": 0.93,
+   "num_comments": 12,
+   "state": {
+    "deleted": false,
+    "removed": false,
+    "locked": false,
+    "archived": false,
+    "over_18": false,
+    "stickied": false
+   },
+   "comments": [
+    {
+     "id": "kx12ab",
+     "author": "u/example_editor",
+     "author_flair": "",
+     "body": "Same problem. Which tool are you all using for this? Descript search is fine within one project but not across a library.",
+     "score": 8,
+     "created_utc": 1782349000,
+     "depth": 0
+    }
+   ],
+   "comments_truncated": true
+  },
+  {
+   "id": "1ttm135",
+   "permalink": "https://www.reddit.com/r/editors/comments/1ttm135/avid_search_index_multiuser/",
+   "subreddit": "r/editors",
+   "found_by": [
+    {
+     "segment": "A",
+     "keyword": "find old footage"
+    },
+    {
+     "segment": "E",
+     "keyword": "vod review workflow"
+    }
+   ],
+   "title": "Avid search index in a multi-user documentary cut",
+   "selftext": "[deleted]",
+   "author": "[deleted]",
+   "author_flair": "",
+   "link_flair": "",
+   "created_utc": 1781000000,
+   "score": 12,
+   "upvote_ratio": 0.8,
+   "num_comments": 3,
+   "state": {
+    "deleted": true,
+    "removed": false,
+    "locked": false,
+    "archived": false,
+    "over_18": false,
+    "stickied": false
+   },
+   "comments": [],
+   "comments_truncated": true
+  }
+ ]
+}
