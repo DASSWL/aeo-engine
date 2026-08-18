@@ -153,6 +153,9 @@ def pick_queries(queries, ledger, cfg, refused=None):
             "slug": slugify(text),
             "query": text,
             "row_id": row.get("id"),
+            # 2026-08-17 起 types_allowed 含评估式,类型要一路带到 prompt:
+            # 两类选题的写法边界不同(评估式不许做竞品裁决),混着写等于没放开。
+            "类型": qtype,
             "面向角色": ac.select_name(p, "面向角色"),
             "数据来源": ac.select_name(p, "数据来源"),
             "月搜索量": (p.get("月搜索量") or {}).get("number"),
@@ -178,7 +181,8 @@ def pick_queries(queries, ledger, cfg, refused=None):
     # 「第 3 名到第 23 名长什么样」在仓库里查不到,只能临时跑脚本重算。
     # 排序口径本身是要审的东西(短头词与长尾问句的量不可比),看不到就审不了。
     ranked = [{"rank": i, "query": it["query"], "月搜索量": it["月搜索量"],
-               "数据来源": it["数据来源"], "picked": i <= q["max_per_run"]}
+               "数据来源": it["数据来源"], "类型": it["类型"],
+               "picked": i <= q["max_per_run"]}
               for i, it in enumerate(picked, 1)]
 
     return picked[:q["max_per_run"]], skipped, ranked
@@ -521,7 +525,7 @@ def build_prompt(items, candidates, cfg, skill_report,
     missing = skill_report.get("missing_required") or []
 
     lines = [
-        "# 任务:为 Vivu 写 AEO 内容(痛点级 query 的回答文章)",
+        "# 任务:为 Vivu 写 AEO 内容(Query 库选题的回答文章)",
         "",
         "文章发布在 vivu.ai,目标读者是带着下面这些问题来搜索的人。",
         "你只写草稿;发布前有真人签发,你不发布任何东西。",
@@ -686,6 +690,29 @@ def build_prompt(items, candidates, cfg, skill_report,
         "## 本次选题",
         "",
     ]
+    if any((it.get("类型") or "") == "评估式" for it in items):
+        # 2026-08-17 Shawn 拍板放开评估式选题。放开的是选题,不是竞品裁决权:
+        # gates.yaml competitor_list_converged 仍是 false,竞替名单没有从真实对话
+        # 里收敛出来。没有这一节,执行体看到「best AI DAM」只会去排名——
+        # 那正是 Concept 明令禁止的「凭猜测指定对比页对象」。
+        lines[-1:] = [
+            "", "> ⚠️ **下面标着「类型: 评估式」的选题有额外边界,见这一段。**", "",
+            "### 评估式选题的额外边界", "",
+            "这类 query(`best X` / `X alternative` / `哪个更好`)问的是选型。",
+            "**但 Vivu 现在没有资格给出选型裁决**:竞替名单还没有从真实对话里"
+            "收敛出来(`gates.yaml: competitor_list_converged=false`),",
+            "任何「A 比 B 好」的话都只能靠编。所以:", "",
+            "- ⛔ **不许排名、不许给竞品打分、不许写「最好的是……」。**",
+            "- ⛔ **不许写任何竞品的能力、价格、限制** —— 无论你多确定。"
+            "facts.json 只覆盖 Vivu 自己,竞品事实这条产线一个来源都没有。",
+            "- ⛔ **不许自己列一张竞品清单。** 只有证据里已经出现的产品名才可以提,"
+            "且只能转述证据说了什么。",
+            "- ✅ **可以写的是「怎么选」而不是「选谁」**:这类工具的差异出在哪几个维度、"
+            "每个维度该问什么问题、什么场景下哪一类做法会失效。"
+            "读者拿走的是一把尺子,不是一份榜单。",
+            "- ✅ Vivu 自己的能力照常写,边界照旧只认 facts.json。", "",
+            "> 做不到上面这些就 REFUSE 这一条 —— 编一份榜单比不写伤害大得多。", "",
+        ]
     for it in items:
         vol = it["月搜索量"] if it["月搜索量"] is not None else (it["搜索量区间"] or "无量证据")
         lines += [
@@ -694,6 +721,7 @@ def build_prompt(items, candidates, cfg, skill_report,
             "### slug: {}".format(it["slug"]),
             "",
             "- query: {}".format(it["query"]),
+            "- 类型: {}".format(it.get("类型") or "-"),
             "- 面向角色: {}".format(it["面向角色"] or "-"),
             "- 搜索量: {}".format(vol),
             "- 数据来源: {}".format(it["数据来源"] or "-"),
