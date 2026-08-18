@@ -1,7 +1,7 @@
 # A1 扫描 playbook · AI 引擎探测（日）
 
 依据：Build Spec · Phase 2 §一.1、§一.3、§二、§四「playbook 文件规范」与「各 playbook 要点」。
-执行者：Claude 会话（Claude in Chrome，默认 Browser 2 + Notion 连接）。
+执行者：Claude 会话（Claude in Chrome，**扫描机 deviceId `0bd1b6a8-…`**，认 deviceId 不认显示名 + Notion 连接）。
 频率：**每日一次**，01:00（America/Los_Angeles，2026-08-07 起，此前为 09:00）。不得加频。
 本 playbook 的 `playbook` 标识（写日志用）：`probe_ai_engines_daily`
 
@@ -24,7 +24,7 @@
 
 ## 0. 第一步自检（**缺一即停，不得带病跑**）
 
-1. **Claude in Chrome 可用**，且连的是默认 Browser 2。逐个打开两个引擎，确认**已登录**且能正常提问：
+1. **Claude in Chrome 可用**，且连的是**扫描机** `deviceId 0bd1b6a8-ae15-46f0-a60c-3a6071387138`（`list_connected_browsers` 逐台比对 deviceId，**不要认显示名**——「Browser 1 / Browser 2」是按连接顺序排的序号，2026-08-17 实测两台的名字已经对调过一次：正确那台当时叫 Browser 1，错的那台叫 Browser 2。认名字会扫错机器，而扫错机器比停机更糟：它会产出看起来正常的错数据）。逐个打开两个引擎，确认**已登录**且能正常提问：
    - ChatGPT：`https://chatgpt.com/`
    - Gemini：`https://gemini.google.com/app`
    任一引擎在登录墙、验证码、或额度用尽页 → **不要跳过它继续**，走 §9 停机上报。

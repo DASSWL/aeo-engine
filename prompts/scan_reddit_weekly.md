@@ -1,7 +1,7 @@
 # A1 扫描 playbook · Reddit 周扫
 
 依据：Build Spec · Phase 2 §一.1、§二、§四「playbook 文件规范」与「各 playbook 要点」。
-执行者：Claude 会话（Claude in Chrome，默认 Browser 2 + Notion 连接）。
+执行者：Claude 会话（Claude in Chrome，**扫描机 deviceId `0bd1b6a8-…`**，认 deviceId 不认显示名 + Notion 连接）。
 频率：**每周一次**，周六 22:00（America/Los_Angeles，2026-08-07 起，此前为周一 10:00），与 LinkedIn 周批扫同场次。
 本 playbook 的 `playbook` 标识（写日志用）：`scan_reddit_weekly`
 
@@ -22,7 +22,7 @@ Reddit 的诱惑比 LinkedIn 更大：你会看到一堆「求推荐工具」的
 
 ## 0. 第一步自检（**缺一即停，不得带病跑**）
 
-1. **Claude in Chrome 可用**，连的是默认 Browser 2；打开 `https://www.reddit.com/`
+1. **Claude in Chrome 可用**，且连的是**扫描机** `deviceId 0bd1b6a8-ae15-46f0-a60c-3a6071387138`（`list_connected_browsers` 逐台比对 deviceId，**不要认显示名**——「Browser 1 / Browser 2」是按连接顺序排的序号，2026-08-17 实测两台的名字已经对调过一次：正确那台当时叫 Browser 1，错的那台叫 Browser 2。认名字会扫错机器，而扫错机器比停机更糟：它会产出看起来正常的错数据）；打开 `https://www.reddit.com/`
    确认**已登录**。看到登录墙 / 验证码 / `Blocked` 页 → 停。
 2. **Notion 连接可用**：读一次水箱库能返回（0 行也算通过）。失败 → 停。
 3. **配置可读**：`config/segments.yaml` 与 `config/scan.yaml`。读不到 → 停。

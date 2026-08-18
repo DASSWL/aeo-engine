@@ -1,7 +1,7 @@
 # A1 扫描 playbook · LinkedIn 周批扫
 
 依据：Build Spec · Phase 2 §一.1、§二、§四「playbook 文件规范」与「各 playbook 要点」。
-执行者：Claude 会话（Claude in Chrome，默认 Browser 2 + Notion 连接）。
+执行者：Claude 会话（Claude in Chrome，**扫描机 deviceId `0bd1b6a8-…`**，认 deviceId 不认显示名 + Notion 连接）。
 频率：**每周一次**，周六 22:00（America/Los_Angeles，2026-08-07 起，此前为周一 10:00）。不得加频。
 本 playbook 的 `playbook` 标识（写日志用）：`scan_linkedin_weekly`
 
@@ -24,7 +24,7 @@
 
 出处：spec §四「会话前置自检」。按顺序做完三条，任何一条不通过就走 §10 上报并结束。
 
-1. **Claude in Chrome 可用**：确认浏览器工具可调用，且当前连的是默认 Browser 2。
+1. **Claude in Chrome 可用**，且连的是**扫描机** `deviceId 0bd1b6a8-ae15-46f0-a60c-3a6071387138`（`list_connected_browsers` 逐台比对 deviceId，**不要认显示名**——「Browser 1 / Browser 2」是按连接顺序排的序号，2026-08-17 实测两台的名字已经对调过一次：正确那台当时叫 Browser 1，错的那台叫 Browser 2。认名字会扫错机器，而扫错机器比停机更糟：它会产出看起来正常的错数据）。
    打开 `https://www.linkedin.com/feed/` 确认**已登录**（能看到自己的头像/信息流）。
    看到登录页、验证码页、或「继续以…身份」的中间页 → 视为不可用，停。
 2. **Notion 连接可用**：读一次水箱库，确认能返回行（0 行也算通过，空库是正常状态）。
