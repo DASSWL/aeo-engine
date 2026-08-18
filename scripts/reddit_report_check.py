@@ -26,7 +26,6 @@ import aeo_scan as sc        # noqa: E402
 
 SCRIPT = "reddit_report_check"
 
-INBOX_DIR = os.path.join(ac.REPO, "inbox", "reddit")
 SCHEMA_VERSION = 1
 
 RUN_STATUS = {"ok", "partial", "failed"}
@@ -58,12 +57,26 @@ def expected_matrix():
     return want
 
 
-def latest_report(dirpath):
-    if not os.path.isdir(dirpath):
-        return None
-    files = [f for f in os.listdir(dirpath)
-             if f.startswith("reddit_scan_") and f.endswith((".json", ".json.gz"))]
-    return os.path.join(dirpath, sorted(files)[-1]) if files else None
+def report_dirs(cfg):
+    """报告目录列表 → 绝对路径。路径在 config/scan.yaml,脚本不持有任何一条。"""
+    return [os.path.expanduser(d) for d in cfg["reddit_reports"]["dirs"]]
+
+
+def latest_report(dirs, glob_pat):
+    """所有目录里文件名最大的一份(文件名带日期,同日 _2 排在 _1 后面)。
+
+    跨目录比的是文件名而不是 mtime:mtime 会被复制/同步/rsync 改掉,
+    而文件名里的日期是报告自己说的它是哪天的。
+    """
+    import fnmatch
+    found = []
+    for d in dirs:
+        if not os.path.isdir(d):
+            continue
+        for f in os.listdir(d):
+            if fnmatch.fnmatch(f, glob_pat) or fnmatch.fnmatch(f, glob_pat + ".gz"):
+                found.append((f, os.path.join(d, f)))
+    return sorted(found)[-1][1] if found else None
 
 
 def load_report(path):
@@ -75,9 +88,9 @@ def load_report(path):
         return json.load(fh)
 
 
-def check(rep, want):
+def check(rep, want, min_sec_per_query=0):
     """→ (硬伤 list, 提醒 list, 统计 dict)。硬伤非空即拒收。"""
-    bad, warn = [], []
+    bad, warn, stats_extra = [], [], {}
 
     if rep.get("schema_version") != SCHEMA_VERSION:
         bad.append("schema_version 应为 {},实际 {!r}".format(
@@ -173,6 +186,26 @@ def check(rep, want):
         if p.get("id"):
             ids.add(p["id"])
 
+    # 工作量合理性:105 个组合全标 ok 而耗时 0 秒,是「看起来全绿其实没跑」。
+    # 2026-08-17 实测踩到过一次,当时覆盖矩阵与状态自洽两项都过了,没人拦得住。
+    if q_ok and min_sec_per_query:
+        try:
+            t0 = datetime.fromisoformat(run.get("started_at"))
+            t1 = datetime.fromisoformat(run.get("finished_at"))
+            elapsed = (t1 - t0).total_seconds()
+        except (TypeError, ValueError):
+            elapsed = None
+            warn.append("run.started_at / finished_at 解析不了,工作量合理性没法查")
+        if elapsed is not None:
+            floor = q_ok * min_sec_per_query
+            if elapsed < floor:
+                bad.append(
+                    "耗时 {:.1f} 秒跑不完 {} 个 status=ok 的组合(下限 {:.1f} 秒,"
+                    "scan.yaml: reddit_reports.min_seconds_per_query)——"
+                    "这不是「跑了但没结果」,是没跑却标成了 ok".format(
+                        elapsed, q_ok, floor))
+            stats_extra["elapsed_seconds"] = round(elapsed, 1)
+
     if SECRET_RE.search(json.dumps(rep, ensure_ascii=False)):
         bad.append("报告里出现疑似凭据字样 —— 规范 §四 明确禁止,请清掉后重出")
     if not posts and run.get("status") == "ok":
@@ -186,23 +219,26 @@ def check(rep, want):
              "matrix_expected": len(want), "matrix_covered": len(want & seen),
              "posts": len(posts), "posts_unique": len(ids),
              "posts_deleted_or_removed": deleted}
+    stats.update(stats_extra)
     return bad, warn, stats
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--report", default=None,
-                    help="报告路径。不给就取 inbox/reddit/ 里日期最新的一份")
+                    help="报告路径。不给就取 scan.yaml 配的目录里日期最新的一份")
     args = ap.parse_args()
 
     try:
         th = ac.load_config("thresholds.yaml")
-        path = args.report or latest_report(INBOX_DIR)
+        scan = ac.load_config("scan.yaml")
+        rr = scan["reddit_reports"]
+        dirs = report_dirs(scan)
+        path = args.report or latest_report(dirs, rr["filename_glob"])
         if not path or not os.path.exists(path):
             sc.emit(SCRIPT, {"script": SCRIPT, "status": "no_report",
-                             "looked_in": INBOX_DIR,
-                             "hint": "爬虫应把 reddit_scan_YYYY-MM-DD.json 落在这里"
-                                     "(先写 .tmp 再 rename)"}, th)
+                             "looked_in": dirs, "glob": rr["filename_glob"],
+                             "hint": "报告目录在 config/scan.yaml: reddit_reports.dirs"}, th)
             return 2
 
         try:
@@ -212,7 +248,8 @@ def main():
                              "report": path, "error": str(exc)}, th)
             return 1
 
-        bad, warn, stats = check(rep, expected_matrix())
+        bad, warn, stats = check(rep, expected_matrix(),
+                                 rr.get("min_seconds_per_query") or 0)
         result = {"script": SCRIPT, "report": path,
                   "status": "rejected" if bad else "accepted",
                   "checked_at": datetime.now().isoformat(timespec="seconds"),

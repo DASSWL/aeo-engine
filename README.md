@@ -2676,3 +2676,43 @@ Shawn 拍板「入箱也改成每周一次」→ 规范 §七 由待定改成定
 `docs/reddit_crawler_brief.md` 是给 Shawn 的 coding agent 的启动文档：
 背景与红线、matrix 从 `segments.yaml` 读、Reddit OAuth 接入与字段映射表、
 失败处理、六条自验收清单。
+
+## 补：报告位置改到 crawler 自己的输出目录 + 体检加了工作量下限
+
+Shawn 2026-08-17：「以后去找报告就是从这个地方来抓」。位置从 `~/aeo-engine/inbox/reddit/`
+改成 **`~/Library/Application Support/Reddit Browser Crawler/reports/`** ——
+让工具迁就仓库不如让仓库跟着工具走，少一次复制就少一处会失同步的地方。
+
+路径**不写死在脚本里**，登记在 `config/scan.yaml: reddit_reports.dirs`（列表，按顺序找、
+取文件名最新的一份；第二条 `~/aeo-engine/inbox/reddit` 是备用投递点，默认不存在）。
+`reddit_report_check.py` 不给 `--report` 时自己去这些目录抓最新一份，实测抓到的是
+`reddit_scan_2026-08-17_2.json`。
+
+⚠️ `~/Library/Application Support/` 是应用自己的数据目录，卸载/重装 crawler 可能整个清掉，
+且不在任何备份或同步范围内。长期证据链该往别处归档——**还没做**，记在这里。
+
+### 体检脚本加了一条：工作量合理性
+
+Shawn 的第一份 smoke 报告 `reddit_scan_2026-08-17.json` 把 **105 个组合全标 `ok`，
+而 `started_at` 与 `finished_at` 是同一秒**、104 个 `returned: 0`。
+覆盖矩阵齐、状态自洽，当时的体检**全绿放行了**。
+
+这比缺行更危险：缺行看得出来，假 ok 看起来就是「跑了、只是没结果」——正好是这套契约
+从头到尾在防的那个失效模式，只不过换了个入口。新增判据：
+`耗时 < status=ok 的组合数 × min_seconds_per_query`（0.2 秒/组合，
+`scan.yaml: reddit_reports.min_seconds_per_query`）即拒收。
+
+实测：第一份现在 `rejected`（「耗时 0.0 秒跑不完 105 个组合」），
+第二份 `accepted`（86 秒 / 1 个组合），样例 `accepted`（883 秒 / 105 个组合）。
+
+同日 `_2` 没覆盖 `_1`，验收清单第 4 条顺带过了。第二份的字段质量合格：
+`author` / `author_flair` / `comments` / `found_by` / `state.*` 一个不缺，
+正文完整无截断痕迹，permalink 规范。
+
+### 第二份的判读结果：7 条 0 命中（不是数据问题）
+
+跑的组合是 `A | r/marketing | "find old footage"`，7 条全不命中——Reddit 按 relevance
+匹配了 find / old / media 这类词，语义全不沾边（HVAC 拍片扯皮、职业吐槽、投放渠道、
+名单数据源、SEO 外链、B2B 展会）。与 08-08 那轮证据一致：r/marketing 当轮也是 0 命中，
+唯二入箱来自 r/videography、r/editors、r/podcasting——**都是创作者社区，不是营销社区**。
+跑满 105 组合后如果这个规律坐实，该按它收 `segments.yaml` 的 subreddit 清单。

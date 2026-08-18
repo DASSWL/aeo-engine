@@ -37,33 +37,37 @@
 ## 一、交付位置与命名
 
 ```
-/Users/shiyuanniu/aeo-engine/inbox/reddit/reddit_scan_YYYY-MM-DD.json    # 机器读，必须
-/Users/shiyuanniu/aeo-engine/inbox/reddit/reddit_scan_YYYY-MM-DD.md      # 人读，可选
+~/Library/Application Support/Reddit Browser Crawler/reports/reddit_scan_YYYY-MM-DD.json
 ```
 
-**这个目录是硬约定**，已建好、已随 `data/ logs/ outbox/` 同例进 .gitignore。
-分析侧只认它，不去别处找。爬虫跑在别的机器/容器里就自己 `mkdir -p`，
-或者把这里 symlink 到你的输出目录——两种都行，但**最终路径必须是上面这一条**。
+**2026-08-17 Shawn 定：报告就落在 crawler 自己的输出目录，分析侧去那里抓。**
+（原先定的是 `~/aeo-engine/inbox/reddit/`，改掉了——让工具迁就仓库不如让仓库跟着工具走，
+少一次复制就少一处会失同步的地方。）
+
+分析侧不硬编码这个路径，它登记在 **`config/scan.yaml: reddit_reports.dirs`**（按顺序找，
+取所有目录里文件名最新的一份）。换工具、换机器、临时手工投一份 → 改那一处配置，
+脚本一行不动。列表里第二条 `~/aeo-engine/inbox/reddit` 是备用投递点，默认不存在。
+
+- 文件名 `reddit_scan_YYYY-MM-DD.json`，日期用 **America/Los_Angeles** 当天。
+- 同一天跑第二次：`_2`、`_3` 后缀，**不要覆盖**。覆盖会把上一次的证据抹掉。
+- **原子落盘**：先写 `.tmp` 再 `rename`。分析侧可能在任何时刻读这个目录，
+  读到半个文件比读不到更糟——它看起来是完整的。
+- 编码 UTF-8、无 BOM。超过 20MB 可以交 `.json.gz`（同名加后缀即可）。
+- 报告**只增不删**，别做保留期清理。它是证据链，不是缓存。
+
+⚠️ `~/Library/Application Support/` 是应用自己的数据目录：卸载或重装 crawler
+有可能整个清掉，且不在任何备份/同步范围内。长期证据链该往别处归档——**这件事还没做**，
+记在这里免得忘。
 
 落好之后自检一次（这个脚本是两边共用的合同，不是我单方面的验收）：
 
 ```bash
-python3 ~/aeo-engine/scripts/reddit_report_check.py            # 取 inbox 里最新一份
+python3 ~/aeo-engine/scripts/reddit_report_check.py                 # 自己去配置的目录找最新一份
 python3 ~/aeo-engine/scripts/reddit_report_check.py --report <路径>
 # 退出码 0=可用 1=有硬伤不进分析 2=报告不在
 ```
 
 可直接照抄的合法样例：`docs/examples/reddit_scan_example.json`（105 组合 + 2 条帖子，体检通过）。
-
-- 日期用 **America/Los_Angeles** 的当天，与仓库其余所有链一致。
-- 同一天跑第二次：`_2`、`_3` 后缀，**不要覆盖**。覆盖会把上一次的证据抹掉。
-- **原子落盘**：先写 `.tmp` 再 `rename`。我可能在任何时刻读这个目录，
-  读到半个文件比读不到更糟——它看起来是完整的。
-- 编码 UTF-8、无 BOM。超过 20MB 可以交 `.json.gz`（同名加后缀即可）。
-- 报告**只增不删**，别做保留期清理。它是证据链，不是缓存。
-- `inbox/` 已按 `data/ logs/ outbox/` 同例不入 git（体积 + 含第三方原文）。
-
----
 
 ## 二、文件结构
 
@@ -135,6 +139,12 @@ python3 ~/aeo-engine/scripts/reddit_report_check.py --report <路径>
 `run.status` 三态：`ok`（全部组合都 ok）、`partial`（有 failed/skipped）、
 `failed`（整轮没起来）。**整轮失败也要落文件**——只有 run 段、queries 全是 failed 也要落。
 没有文件我分不出「爬虫挂了」和「你今天没开机」。
+
+**不许把没跑的组合标成 `ok`。** 2026-08-17 的第一份 smoke 报告把 105 个组合全标 `ok`、
+`started_at` 与 `finished_at` 却是同一秒——覆盖矩阵齐、状态自洽，体检当时全绿放行了。
+这比缺行更危险：缺行还看得出来，假 ok 看起来就是「跑了，只是没结果」。
+体检脚本已加工作量下限（`scan.yaml: reddit_reports.min_seconds_per_query`），
+但真正的防线是别写出这种文件——没跑就是 `skipped`，跑挂就是 `failed`。
 
 ---
 

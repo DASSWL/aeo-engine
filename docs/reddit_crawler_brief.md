@@ -122,8 +122,9 @@ GET https://oauth.reddit.com/{subreddit}/search
 
 ## 5. 输出与失败处理
 
-- 落 `/Users/shiyuanniu/aeo-engine/inbox/reddit/reddit_scan_YYYY-MM-DD.json`
-  （America/Los_Angeles 当天；目录不存在就建；同日重跑用 `_2` `_3` 后缀，**不要覆盖**）。
+- 落 `~/Library/Application Support/Reddit Browser Crawler/reports/reddit_scan_YYYY-MM-DD.json`
+  （crawler 自己的输出目录；America/Los_Angeles 当天；同日重跑用 `_2` `_3` 后缀，**不要覆盖**）。
+  下游从 `config/scan.yaml: reddit_reports.dirs` 读这个位置，换目录只改那一处。
 - **原子落盘**：先写 `.tmp` 再 `rename`。下游可能在任何时刻读这个目录，
   读到半个文件比读不到更糟——它看起来是完整的。
 - 单个组合失败：重试（建议 3 次、指数退避），仍失败就写
@@ -131,7 +132,8 @@ GET https://oauth.reddit.com/{subreddit}/search
 - **整轮失败也要落文件**：只有 `run` 段、`queries` 全是 `failed` 也要落，
   `run.status: "failed"`。没有文件下游分不出「爬虫挂了」和「今天没开机」。
 - `run.status` 三态：全 ok → `ok`；有 failed/skipped → `partial`；整轮没起来 → `failed`。
-  （体检脚本会拦「status=ok 但有 failed 组合」这种自相矛盾。）
+- **没跑的组合标 `skipped`，不要标 `ok`。** 体检脚本会拦两种自相矛盾：
+  「status=ok 但有 failed 组合」，以及「N 个组合标 ok 但整轮耗时不够跑完 N 个」。
 
 ---
 
