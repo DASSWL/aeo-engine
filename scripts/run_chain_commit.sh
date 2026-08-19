@@ -75,7 +75,14 @@ fi
 import json, sys
 d = json.load(open(sys.argv[1]))
 for w in (d.get("written") or [])[:20]:
-    label = w.get("query 文本") or w.get("人名") or w.get("公司") or w.get("action")
+    # 每条链的 written 用自己的字段名当标签。挂新脚本上来时若字段不在这张表里，
+    # 不要打 None——2026-08-19 ledger_signoff_date 的「面向」不在表里，
+    # 摘要静默退化成 19 行「- None」，写入本身是好的却看不出来。
+    # 取不到就把整条原始 JSON 打出来：难看，但至少还能读，且一眼看出该补哪个字段。
+    label = (w.get("query 文本") or w.get("人名") or w.get("公司")
+             or w.get("面向") or w.get("action"))
+    if label is None:
+        label = json.dumps(w, ensure_ascii=False)
     print("- {}".format(label))
 n = len(d.get("written") or [])
 if n > 20:
